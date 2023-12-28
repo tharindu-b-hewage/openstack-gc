@@ -1,6 +1,6 @@
 # openstack-gc
 
-![Go Build](https://github.com/github/docs/actions/workflows/go.yml/badge.svg)
+![Go Build](https://github.com/crunchycookie/openstack-gc/actions/workflows/go.yml/badge.svg)
 
 Practical implementation of VM packing with Green Cores via Openstack.
 
