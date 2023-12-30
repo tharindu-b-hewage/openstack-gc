@@ -8,24 +8,26 @@ import (
 	"net/http"
 )
 
-func GetSleepInfo(c *gin.Context) {
-	controller := power.NewSleepController()
-	postBody := controller.Info()
+type SleepAPIHandler struct {
+	Controller power.SleepController
+}
 
+func (o *SleepAPIHandler) GetSleepInfo(c *gin.Context) {
+	postBody := o.Controller.Info()
 	c.IndentedJSON(http.StatusOK, postBody)
 }
 
-func GetSleepOPs(c *gin.Context) {
+func (o *SleepAPIHandler) GetSleepOPs(c *gin.Context) {
 	c.IndentedJSON(http.StatusOK, dummy.DummySleepOps)
 }
 
-func PutSleepOP(c *gin.Context) {
+func (o *SleepAPIHandler) PutSleepOP(c *gin.Context) {
 	var newSleepOp model.SleepOp
 	if err := c.BindJSON(&newSleepOp); err != nil {
 		return
 	}
 
-	controller := power.NewSleepController()
+	controller := o.Controller
 	if newSleepOp.Kind == "sleep" {
 		controller.Sleep(newSleepOp.Count)
 	} else if newSleepOp.Kind == "wake" {
