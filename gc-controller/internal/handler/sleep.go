@@ -9,7 +9,7 @@ import (
 )
 
 type SleepAPIHandler struct {
-	Controller power.SleepController
+	Controller *power.SleepController
 }
 
 func (o *SleepAPIHandler) GetSleepInfo(c *gin.Context) {
@@ -28,12 +28,31 @@ func (o *SleepAPIHandler) PutSleepOP(c *gin.Context) {
 	}
 
 	controller := o.Controller
-	if newSleepOp.Kind == "sleep" {
-		controller.Sleep(newSleepOp.Count)
-	} else if newSleepOp.Kind == "wake" {
-		controller.Wake(newSleepOp.Count)
+	controller.Sleep(newSleepOp.Count)
+
+	c.IndentedJSON(http.StatusCreated, newSleepOp)
+}
+
+func (o *SleepAPIHandler) PutAwakeOP(c *gin.Context) {
+	var newSleepOp model.SleepOp
+	if err := c.BindJSON(&newSleepOp); err != nil {
+		return
 	}
 
-	dummy.DummySleepOps = append(dummy.DummySleepOps, newSleepOp)
+	controller := o.Controller
+	controller.Wake(newSleepOp.Count)
+
 	c.IndentedJSON(http.StatusCreated, newSleepOp)
+}
+
+func (o *SleepAPIHandler) PutPoolFreq(c *gin.Context) {
+	var newFqOp model.FqOp
+	if err := c.BindJSON(&newFqOp); err != nil {
+		return
+	}
+
+	controller := o.Controller
+	controller.OpFrequency(newFqOp.FMhz)
+
+	c.IndentedJSON(http.StatusCreated, newFqOp)
 }
