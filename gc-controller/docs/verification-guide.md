@@ -80,7 +80,8 @@ information are not visible.
       }'`
    4. Re-run powerstat tool to collect CPU power through RAPL `sudo powerstat -R`
    5. Compare two power results. With the core turned off, it should save about ~1 watt of power.
-
+   ![power-verification-pre.png](power-verification-pre.png)
+   ![power-verification-post.png](power-verification-post.png)
 #### Post-cleanup
 
 The changed states will persist even after service is stopped. Therefore, it's recommended to restart the system, such
