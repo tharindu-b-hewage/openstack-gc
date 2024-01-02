@@ -55,7 +55,7 @@ func NewSleepController() (*SleepController, error) {
 
 	log.Println("changing all cores to maximum performance profile...")
 	err1 = setPerf(&host, RegularCoresPoolName, 2600)
-	err2 = setPerf(&host, GreenCoresPoolName, 2600)
+	err2 = setPerf(&host, GreenCoresPoolName, 100) // CPU might stop at the lowest possible value, which might be higher that the provided.
 	if err1 != nil || err2 != nil {
 		return nil, fmt.Errorf("failed at setting cores to max performance: %w and %w", err1, err2)
 	}
