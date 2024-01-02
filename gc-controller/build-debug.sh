@@ -18,10 +18,3 @@ scp ./gc-controller $REMOTE_USER@$REMOTE_IP:$REMOTE_WORKSPACE
 scp ./run-at-remote-for-debug.sh $REMOTE_USER@$REMOTE_IP:$REMOTE_WORKSPACE
 
 echo "--> done!"
-
-# Monitor power on ubuntu
-# sudo apt-get install s-tui
-# sudo s-tui
-# ---- another one:
-# sudo apt-get install i7z
-# sudo i7z
