@@ -12,6 +12,8 @@ const (
 	GreenCoresPoolName             = "gc-pool"
 	MaxPerformancePowerProfileName = "maxPerfProf"
 	CStatesFullyAwake              = "POLL"
+	SleepingFq                     = 100
+	FullyAwakeFq                   = 2600
 )
 
 var DeepestSleepStateLbl string

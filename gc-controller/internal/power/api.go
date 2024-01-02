@@ -20,14 +20,13 @@ func (o *SleepController) Sleep(coreCount int) error {
 	//todo need to support per-core sleep state and set it according to the coreCount parameter.
 	// below only set pool sleep state.
 	pool := GreenCoresPoolName
-	state := DeepestSleepStateLbl
-	err := setPoolSleepState(&host, pool, true)
-	if err != nil {
+	err2 := setPerf(&host, pool, SleepingFq)
+	err1 := setPoolSleepState(&host, pool, true)
+	if err1 != nil || err2 != nil {
 		//todo handle error from calling level, and then we can remove below log.
-		log.Print("failed at changing pool sleep state: %w", err)
-		return fmt.Errorf("failed at changing pool sleep state: %w", err)
+		return fmt.Errorf("failed at sleeping green core: %w, %w", err1, err2)
 	}
-	log.Printf("sleep state of pool: %s changed to: %s", pool, state)
+	log.Printf("green core sleep state changed to: %s", DeepestSleepStateLbl)
 	return nil
 }
 
@@ -39,14 +38,13 @@ func (o *SleepController) Wake(coreCount int) error {
 	//todo need to support per-core sleep state and set it according to the coreCount parameter.
 	// below only set pool sleep state.
 	pool := GreenCoresPoolName
-	state := CStatesFullyAwake
-	err := setPoolSleepState(&host, pool, false)
-	if err != nil {
+	err2 := setPerf(&host, pool, FullyAwakeFq)
+	err1 := setPoolSleepState(&host, pool, false)
+	if err1 != nil || err2 != nil {
 		//todo handle error from calling level, and then we can remove below log.
-		log.Print("failed at changing pool sleep state: %w", err)
-		return fmt.Errorf("failed at changing pool sleep state: %w", err)
+		return fmt.Errorf("failed at waking green core: %w, %w", err1, err2)
 	}
-	log.Printf("sleep state of pool: %s changed to: %s", pool, state)
+	log.Println("green core woken up")
 	return nil
 }
 
