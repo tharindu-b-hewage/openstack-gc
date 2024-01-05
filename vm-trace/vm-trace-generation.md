@@ -41,7 +41,14 @@ Implementation is found in [az-trace-gen](az-trace-gen).
 
 #### Usage
 
-Login to Openstack Horizon dashboard (http://<ip>/dashboard) and sign as the admin. Go to the admin project.
+First, install openstack cli client. We directly use this client to interact with Openstack APIs, without depending
+on any third party libraries.
+
+`sudo pip3 install python-openstackclient`
+
+(in Mac OSX, add `~/Libary/Python/3.X/bin` to PATH).
+
+Then, login to Openstack Horizon dashboard (http://<ip>/dashboard) and sign as the admin. Go to the admin project.
 
 Under project section, select API access.
 
@@ -49,15 +56,13 @@ From here, click the button to download the Openstack RC file. This file contain
 
 This file sets environment variables used by the client. 
 
-First, source the file.
+Source the file.
 
 `source ***-openrc.sh`
 
 Then make all scripts runnable, such that the client can run them.
 
 `chmod +x *.sh`
-
-
 
 Then, run the client (a sample config file is found [configs.properties](az-trace-gen%2Fsrc%2Fmain%2Fresources%2Fconfigs.properties)).
 
