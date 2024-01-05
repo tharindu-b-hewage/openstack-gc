@@ -6,3 +6,4 @@ scp ./remote-exec-debug.sh $USER@$HOST:$WORKPLACE/remote-exec-debug.sh
 
 scp ./src/main/resources/os-client/image-list.sh $USER@$HOST:$WORKPLACE/image-list.sh
 scp ./src/main/resources/os-client/create-vm.sh $USER@$HOST:$WORKPLACE/create-vm.sh
+scp ./src/main/resources/os-client/delete-vm.sh $USER@$HOST:$WORKPLACE/delete-vm.sh

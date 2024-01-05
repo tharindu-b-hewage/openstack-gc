@@ -32,7 +32,7 @@ public class OpenstackComputeClient {
         return null;
     }
 
-    public void deleteVM(Object server) {
-
+    public void deleteVM(String vmName) {
+        runOpenstackOP("delete-vm.sh " + vmName);
     }
 }
