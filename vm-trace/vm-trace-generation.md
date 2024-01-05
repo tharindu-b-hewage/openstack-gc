@@ -36,3 +36,29 @@ Then,
 #### Implementation
 
 A java application that generates the API calls for creation and deletion of VMs, based on the generated trace.
+
+Implementation is found in [az-trace-gen](az-trace-gen).
+
+#### Usage
+
+Login to Openstack Horizon dashboard (http://<ip>/dashboard) and sign as the admin. Go to the admin project.
+
+Under project section, select API access.
+
+From here, click the button to download the Openstack RC file. This file contains the credentials to access APIs.
+
+This file sets environment variables used by the client. 
+
+First, source the file.
+
+`source ***-openrc.sh`
+
+Then make all scripts runnable, such that the client can run them.
+
+`chmod +x *.sh`
+
+
+
+Then, run the client (a sample config file is found [configs.properties](az-trace-gen%2Fsrc%2Fmain%2Fresources%2Fconfigs.properties)).
+
+`java -jar trace-gen.jar ./configs.properties`
