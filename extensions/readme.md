@@ -1,4 +1,4 @@
-## Support green cores
+## Configure the deployment for Green Cores
 
 To implement and observe green cores, compute node behaviour is expected as follows.
 
@@ -97,6 +97,10 @@ Below is all the tasks we did so far.
 1. Set common flavour to use pinned cores.
 2. Set libvirt to use all cores for core pinning.
 3. Turn off core power management from Openstack.
+
+#### Req. 02
+
+This is covered in [priority-core-pinning.md](feature-priority-core-pinning/readme).
 
 
 
