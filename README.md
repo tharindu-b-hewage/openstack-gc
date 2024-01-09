@@ -35,6 +35,16 @@ Practical implementation of VM packing with Green Cores via Openstack.
 4. Deploy green core emulation service
     1. [readme.md](extensions%2Fgc-emulator-service%2Freadme.md)
 5. Deploy core-power-mgt service at the compute note ([core-power-mgt](https://github.com/crunchycookie/core-power-mgt))
+   1. `wget https://github.com/crunchycookie/core-power-mgt/releases/download/v1.0.0-alpha/gc-controller`
+   2. Create a `conf.yaml`
+       ```yaml
+        host:
+            name: <ip>
+            port: 3000
+        gc:
+            pool-size: 4
+       ```
+   3. Run `sudo ./gc-controller conf.yaml`
 
 ## Deployment verification
 
