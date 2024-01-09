@@ -19,3 +19,8 @@
 
 # Go workspace file
 go.work
+
+secrets.txt
+gc-emulator-service
+
+.DS_Store
