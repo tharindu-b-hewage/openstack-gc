@@ -1,0 +1,2 @@
+export NOVA_COMPUTE_NODE_USER=?
+export NOVA_COMPUTE_NODE_IP=?

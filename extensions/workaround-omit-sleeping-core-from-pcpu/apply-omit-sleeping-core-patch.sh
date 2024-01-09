@@ -1,0 +1,1 @@
+cp ./host.py /opt/stack/nova/nova/virt/libvirt/host.py
