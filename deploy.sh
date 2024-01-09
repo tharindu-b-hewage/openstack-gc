@@ -25,3 +25,13 @@ scp $OS_CORE_PINNING_FEATURE_REPO/nova/conf/compute.py $DEVSTACK_USER@$DEVSTACK_
 scp $OS_CORE_PINNING_FEATURE_REPO/nova/virt/hardware.py $DEVSTACK_USER@$DEVSTACK_HOST:$DEVSTACK_WORKPLACE/hardware.py
 scp ./extensions/feature-priority-core-pinning/apply-patch.sh $DEVSTACK_USER@$DEVSTACK_HOST:$DEVSTACK_WORKPLACE/apply-patch.sh
 scp ./extensions/restart-devstack-services.sh $DEVSTACK_USER@$DEVSTACK_HOST:$DEVSTACK_WORKPLACE/restart-devstack-services.sh
+
+# deploy gc emulation service.
+cd ./extensions/gc-emulator-service
+scp ./gc-emulator-service $USER@$HOST:$WORKPLACE/gc-emulator-service
+scp ./scripts/virsh-list-domains.sh $USER@$HOST:$WORKPLACE/virsh-list-domains.sh
+scp ./scripts/virsh-domain-get-pinned-cpu-core.sh $USER@$HOST:$WORKPLACE/virsh-domain-get-pinned-cpu-core.sh
+scp ./scripts/openstack-get-server-by-domain.sh $USER@$HOST:$WORKPLACE/openstack-get-server-by-domain.sh
+scp ./scripts/openstack-shelve-offload-server.sh $USER@$HOST:$WORKPLACE/openstack-shelve-offload-server.sh
+scp ./scripts/gc-emul-envs.sh $USER@$HOST:$WORKPLACE/gc-emul-envs.sh
+cd ../../

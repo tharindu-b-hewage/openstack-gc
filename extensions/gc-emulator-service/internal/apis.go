@@ -1,51 +1,56 @@
 package internal
 
 import (
+	"fmt"
 	"github.com/gin-gonic/gin"
 	"net/http"
-	"sync"
 )
 
 type GreenCoreMgt struct {
 	IsGreenCoreAwake bool
-	IsAlive          bool
-	mu               sync.Mutex
-}
-
-type GcStatus struct {
-	IsAsleep bool `json:"is-asleep"`
+	Status           bool
+	greenCoreId      uint
 }
 
 func NewGreenCoreMgt() GreenCoreMgt {
+
 	mgt := GreenCoreMgt{
 		IsGreenCoreAwake: false,
-		IsAlive:          true,
+		Status:           true,
+		greenCoreId:      3,
 	}
 	return mgt
 }
 
 func (o *GreenCoreMgt) Start() {
-	for o.IsAlive {
-		// read trace and interpret.
+	for o.Status {
+		//todo read trace and set state.
 	}
 }
 
 func (o *GreenCoreMgt) Begin(c *gin.Context) {
+	fmt.Printf("starting monitoring...")
 	go o.Start()
 	c.IndentedJSON(http.StatusAccepted, nil)
 }
 
 func (o *GreenCoreMgt) IsAsleep(c *gin.Context) {
+	fmt.Printf("checking gc state...")
 	c.IndentedJSON(http.StatusOK, GcStatus{
-		IsAsleep: o.IsGreenCoreAwake,
+		IsAwake: o.IsGreenCoreAwake,
 	})
 }
 
 func (o *GreenCoreMgt) Switch(c *gin.Context) {
-	o.mu.Lock()
-	defer o.mu.Unlock()
+	fmt.Printf("changing gc state from: %t, to: %t\n ...", o.IsGreenCoreAwake, !o.IsGreenCoreAwake)
 	o.IsGreenCoreAwake = !o.IsGreenCoreAwake
+	err := o.triggerTransition(!o.IsGreenCoreAwake)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, "Something went wrong. Check admin logs.")
+		return
+	}
+
 	c.IndentedJSON(http.StatusCreated, GcStatus{
-		IsAsleep: o.IsGreenCoreAwake,
+		IsAwake: o.IsGreenCoreAwake,
 	})
 }

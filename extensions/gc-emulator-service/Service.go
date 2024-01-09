@@ -15,11 +15,11 @@ func main() {
 	router.GET("/gc/is-asleep", manager.IsAsleep)
 	router.POST("/gc/dev/switch", manager.Switch)
 
-	err := router.Run("localhost:4000")
+	err := router.Run("100.70.12.103:4000")
 	if err != nil {
 		fmt.Println("Unable to start the gc-emulator service", err)
 		return
 	}
 
-	manager.IsAlive = false
+	manager.Status = false
 }
