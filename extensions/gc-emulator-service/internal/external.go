@@ -26,7 +26,7 @@ func RunThirdPartyClient[T any](script string, arg string, obj *[]T) error {
 
 func (o *GreenCoreMgt) putGcToAwakeInHost() {
 	fmt.Printf("gc-awake: calling external power apis...")
-	err := RunThirdPartyClient[any]("sh gc-controller-wake.sh", "", nil)
+	err := RunThirdPartyClient[any]("gc-controller-wake.sh", "", nil)
 	if err != nil {
 		fmt.Printf("failed to call external power api to wake...")
 	}
@@ -34,7 +34,7 @@ func (o *GreenCoreMgt) putGcToAwakeInHost() {
 
 func (o *GreenCoreMgt) putGcToSleepInHost() {
 	fmt.Printf("gc-sleep: calling external power apis...")
-	err := RunThirdPartyClient[any]("sh gc-controller-sleep.sh", "", nil)
+	err := RunThirdPartyClient[any]("gc-controller-sleep.sh", "", nil)
 	if err != nil {
 		fmt.Printf("failed to call external power api to wake...")
 	}
