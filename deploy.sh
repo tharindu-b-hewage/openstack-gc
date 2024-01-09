@@ -23,7 +23,9 @@ cd ../../
 # Refer extensions/feature-priority-core-pinning/readme.md first.
 scp $OS_CORE_PINNING_FEATURE_REPO/nova/conf/compute.py $DEVSTACK_USER@$DEVSTACK_HOST:$DEVSTACK_WORKPLACE/compute.py
 scp $OS_CORE_PINNING_FEATURE_REPO/nova/virt/hardware.py $DEVSTACK_USER@$DEVSTACK_HOST:$DEVSTACK_WORKPLACE/hardware.py
-scp ./extensions/feature-priority-core-pinning/apply-patch.sh $DEVSTACK_USER@$DEVSTACK_HOST:$DEVSTACK_WORKPLACE/apply-patch.sh
+scp ./extensions/feature-priority-core-pinning/apply-priority-core-pinning-patch.sh $DEVSTACK_USER@$DEVSTACK_HOST:$DEVSTACK_WORKPLACE/apply-priority-core-pinning-patch.sh
+scp $OS_CORE_PINNING_FEATURE_REPO/nova/virt/libvirt/host.py $DEVSTACK_USER@$DEVSTACK_HOST:$DEVSTACK_WORKPLACE/host.py
+scp ./extensions/workaround-omit-sleeping-core-from-pcpu/apply-omit-sleeping-core-patch.sh $DEVSTACK_USER@$DEVSTACK_HOST:$DEVSTACK_WORKPLACE/apply-omit-sleeping-core-patch.sh
 scp ./extensions/restart-devstack-services.sh $DEVSTACK_USER@$DEVSTACK_HOST:$DEVSTACK_WORKPLACE/restart-devstack-services.sh
 
 # deploy gc emulation service.
