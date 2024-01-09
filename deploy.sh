@@ -35,5 +35,7 @@ scp ./scripts/virsh-list-domains.sh $USER@$HOST:$WORKPLACE/virsh-list-domains.sh
 scp ./scripts/virsh-domain-get-pinned-cpu-core.sh $USER@$HOST:$WORKPLACE/virsh-domain-get-pinned-cpu-core.sh
 scp ./scripts/openstack-get-server-by-domain.sh $USER@$HOST:$WORKPLACE/openstack-get-server-by-domain.sh
 scp ./scripts/openstack-shelve-offload-server.sh $USER@$HOST:$WORKPLACE/openstack-shelve-offload-server.sh
+scp ./scripts/gc-controller-wake.sh $USER@$HOST:$WORKPLACE/gc-controller-wake.sh
+scp ./scripts/gc-controller-sleep.sh $USER@$HOST:$WORKPLACE/gc-controller-sleep.sh
 scp ./scripts/gc-emul-envs.sh $USER@$HOST:$WORKPLACE/gc-emul-envs.sh
 cd ../../
