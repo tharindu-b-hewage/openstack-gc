@@ -34,7 +34,7 @@ We build on top of the latest stable openstack version, `stable/2023.2`.
     - Clone nova-compute source code mirror - https://github.com/openstack/nova.git.
     - Checkout to `stable/2023.2` branch.
     - Apply
-      patch [nove-compute-feature-branch-diff-with-stable_2023.2.diff](extensions%2Fnove-compute-feature-branch-diff-with-stable_2023.2.diff).
+      patch [nova-feature-diff.patch](extensions%2Fnova-feature-diff.patch).
         - `0e296ed1b97e5998add512a6294109d3613b0f8a`: Enables add priority during pinning vcpu to pcpu
         - `30f8635b72128b6cf3b63a05fa09e0e0a79a14c3`: Enables core isolation when a cpu is identified as sleeping. This
           extends offline cpu detection feature to be aware of sleeping cores, which is provided by polling an external

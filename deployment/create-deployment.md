@@ -43,15 +43,18 @@ Before begin with next steps, make sure that both nodes are in the private netwo
     - `git clone https://opendev.org/openstack/devstack`
     - `cd devstack`
     - `git checkout stable/2023.2`
-4. Create a file named `local.conf` with the following content.
-   ```bash
-    [[local|localrc]]
-    ADMIN_PASSWORD=secret
-    DATABASE_PASSWORD=$ADMIN_PASSWORD
-    RABBIT_PASSWORD=$ADMIN_PASSWORD
-    SERVICE_PASSWORD=$ADMIN_PASSWORD
-    HOST_IP=<ip-of-the-node>
-    ```
+4. Create a file named `local.conf` with the following content. Make sure to replace placeholders.
+```bash
+[[post-config|$NOVA_CONF]]
+[DEFAULT]
+cpu_allocation_ratio=1.0
+[compute]
+cpu_stable_set=0-2
+cpu_dynamic_set=3
+cpu_sleep_info_endpoint=http://<emulation-service-node-ip>:(emulation-service-port)/gc/is-asleep
+[libvirt]
+cpu_power_management=False
+```
 5. Run `./stack.sh`
 
 If success, the final output will look like something similar to this.
@@ -74,6 +77,8 @@ OS Version: Ubuntu 22.04 jammy
 
 2024-01-04 03:50:48.345 | stack.sh completed in 553 seconds.
 ```
+6. Make vm flavor `m1.nano` for pinned cores.
+    - `openstack flavor set "m1.nano" --property hw:cpu_policy=dedicated`
 
 #### Post deployment
 
