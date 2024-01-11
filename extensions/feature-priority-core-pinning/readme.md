@@ -12,7 +12,7 @@ Existing core pinning does not allow pinning order. We allow configuring two cor
 
 ```
 [compute]
-cpu_high_priority_set=[0,1,2]
+cpu_stable_set=[1,2,3]
 ```
 During pinning, if available, high priority cores are attempted first. If not enough, low priority cores are used.
 
@@ -24,7 +24,7 @@ We set first three regular cores as priority cores. Since common flavour of VMs 
 
 ```
 [compute]
-cpu_high_priority_set=[0,1,2]
+cpu_stable_set=[1,2,3]
 ```
 
 #### Deploy instructions
@@ -32,9 +32,9 @@ cpu_high_priority_set=[0,1,2]
 2. Set the config,
     ```
     [compute]
-    cpu_high_priority_set=[0,1,2]
+    cpu_stable_set=[1,2,3]
     ```
     in /etc/nova/nova.conf file.
 3. Restart services with [restart-devstack-services.sh](..%2Frestart-devstack-services.sh)
 
-Note: Current PoC version hardcode the config as `cpu_high_priority_set=[0,1,2]`. This will be fixed in future.
+Note: Current PoC version hardcode the config as `cpu_high_priority_set=[1,2,3]`. This will be fixed in future.

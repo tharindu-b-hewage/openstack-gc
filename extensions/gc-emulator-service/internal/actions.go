@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 )
 
 func (o *GreenCoreMgt) shelveAllRunningInstancesOnGreenCore() error {
@@ -65,13 +66,21 @@ func (o *GreenCoreMgt) triggerTransition(isPutToSleep bool) error {
 
 func (o *GreenCoreMgt) setPollingEndpointToAwake() {
 	o.IsGreenCoreAwake = true
-}
-
-func (o *GreenCoreMgt) isGreenCore(pinnedCore int) bool {
-	return uint(pinnedCore) == o.greenCoreId
+	// need to wait until os is properly updated. since this service serves multiple worker node, its not scalable to implement synchrounous check.
+	fmt.Println("waiting to allow openstack to update...")
+	time.Sleep(10 * time.Second)
+	fmt.Println("waited. assume openstack is updated...")
 }
 
 func (o *GreenCoreMgt) setPollingEndpointToSleep() {
 	// Expects openstack to omit green core from pCPU list, through polling api.
 	o.IsGreenCoreAwake = false
+	// need to wait until os is properly updated. since this service serves multiple worker node, its not scalable to implement synchrounous check.
+	fmt.Println("waiting to allow openstack to update...")
+	time.Sleep(10 * time.Second)
+	fmt.Println("waited. assume openstack is updated...")
+}
+
+func (o *GreenCoreMgt) isGreenCore(pinnedCore int) bool {
+	return uint(pinnedCore) == o.greenCoreId
 }

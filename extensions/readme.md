@@ -59,6 +59,8 @@ cpu_allocation_ratio=1.0
 cpu_dedicated_set=1-4
 ```
 
+todo: rewrite this. cannot use `cpu_dedicated_set` with dynamic scaling of cores.
+
 Since our host has 4 cores (because H/T is disabled), the above will reserve all cores for flavours using CPU pinning. 
 Setting the allocation ratio to 1.0 means core are not overcommited.
 

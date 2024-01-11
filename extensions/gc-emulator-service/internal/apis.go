@@ -41,6 +41,13 @@ func (o *GreenCoreMgt) IsAsleep(c *gin.Context) {
 	})
 }
 
+func (o *GreenCoreMgt) GetSleepingCoreIds(c *gin.Context) {
+	fmt.Printf("checking gc state...")
+	c.IndentedJSON(http.StatusOK, GcStatus{
+		IsAwake: o.IsGreenCoreAwake,
+	})
+}
+
 func (o *GreenCoreMgt) Switch(c *gin.Context) {
 	fmt.Printf("changing gc state from: %t, to: %t\n ...", o.IsGreenCoreAwake, !o.IsGreenCoreAwake)
 	o.IsGreenCoreAwake = !o.IsGreenCoreAwake
