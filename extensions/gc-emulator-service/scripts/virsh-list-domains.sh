@@ -1,2 +1,3 @@
+#!/bin/bash
 # set/source env vars first.
-virsh -c qemu+ssh://$NOVA_COMPUTE_NODE_USER@$NOVA_COMPUTE_NODE_IP/system list | virsh-json
+virsh -c qemu+ssh://$1@$2/system list | virsh-json

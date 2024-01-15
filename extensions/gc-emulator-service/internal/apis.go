@@ -9,15 +9,15 @@ import (
 type GreenCoreMgt struct {
 	IsGreenCoreAwake bool
 	Status           bool
-	greenCoreId      uint
+	conf             ConfYaml
 }
 
-func NewGreenCoreMgt() GreenCoreMgt {
+func NewGreenCoreMgt(conf ConfYaml) GreenCoreMgt {
 
 	mgt := GreenCoreMgt{
 		IsGreenCoreAwake: false,
 		Status:           true,
-		greenCoreId:      3,
+		conf:             conf,
 	}
 	return mgt
 }

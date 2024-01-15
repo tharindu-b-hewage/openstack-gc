@@ -57,5 +57,16 @@ cores in openstack.
 
 - Make sure `virsh-json` command runs the tool. If terminal says it cannot be found, make sure to put it in the path
   variable (example: `~/go/bin` folder is in your path)
-- Edit to set correct values and run, `source gc-emul-envs.sh`
-- Start the service via `./gc-emulator-service`
+- Make sure `virsh` can ssh access all hosts.
+- Create following in `conf.yaml`.
+```yaml
+compute-hosts:
+  - ip: 100.100.100.100
+    user: ubuntu
+    dynamic-core-ids: [3,4,5]
+  - ip: 100.100.100.101
+    user: ubuntu
+    dynamic-core-ids: [4,5]
+```
+[//]: # (- Edit to set correct values and run, `source gc-emul-envs.sh`)
+- Start the service via `./gc-emulator-service ./conf.yaml`
