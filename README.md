@@ -62,13 +62,20 @@ We build on top of the latest stable openstack version, `stable/2023.2`.
    [apply-priority-core-pinning-patch.sh](extensions%2Ffeature-priority-core-pinning%2Fapply-priority-core-pinning-patch.sh).
 6. Start `gc-controller` service at the compute node.
     - Create a `conf.yaml` file with following content.
-        ```yaml
-        host:
-            name: <compute-ip>
-            port: 3000
-        gc:
-            pool-size: 4
-        ```
+    ```yaml
+    host:
+      name: <node-ip>
+      port: 3000
+      is-emulate: false
+    topology:
+      stable-core-count: <set-stable-cores-count>
+      dynamic-core-count: <set-dynamic-cores-count>
+    power-profile:
+      sleep-idle-state: <idle-state-label-for-sleeping (use `cpupower idle-info` to list available states)>
+      sleep-frq: <sleep-core-fq>
+      perf-idle-state: <idle-state-label-for-perf (use `cpupower idle-info` to list available states)>
+      perf-frq: <perf-core-fq>
+    ```
     - Run `sudo ./gc-controller conf.yaml` (might need to set ownership via `sudo chmod +x gc-controller`).
     - Service should be up and ready to serve without any errors.
 7. Start `gc-emulator-service` service at the controller node.

@@ -2,42 +2,52 @@ package internal
 
 import (
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
-	"time"
 )
 
-func (o *GreenCoreMgt) shelveAllRunningInstancesOnGreenCore() error {
-	var domains []domainsVirshModel
-	err := RunThirdPartyClient[domainsVirshModel]("virsh-list-domains.sh", "", &domains)
-	if err != nil {
-		return err
-	}
-	for _, domain := range domains {
-		var cpuAffinities []emulatorPinVirshModel
-		err := RunThirdPartyClient[emulatorPinVirshModel]("virsh-domain-get-pinned-cpu-core.sh", domain.Name, &cpuAffinities)
+func (o *GreenCoreMgt) evictVMsOnGreenCores() error {
+	for _, host := range o.conf.ComputeHosts {
+		// Evicting VMs pinned to green cores.
+		var domains []domainsVirshModel
+		err := RunThirdPartyClient[domainsVirshModel](&domains, "virsh-list-domains.sh", host.User, host.Ip)
 		if err != nil {
 			return err
 		}
-		isShelve := false
-		for _, cpuAffinity := range cpuAffinities {
-			pinnedCore, _ := strconv.Atoi(strings.Split(cpuAffinity.EmulatorCPUAffinity, "*: ")[1])
-			if o.isGreenCore(pinnedCore) {
-				isShelve = true
-			}
-		}
-		if isShelve {
-			var servers []osServerModel
-			err := RunThirdPartyClient[osServerModel]("openstack-get-server-by-domain.sh", domain.Name, &servers)
+		for _, domain := range domains {
+			var cpuAffinities []emulatorPinVirshModel
+			err := RunThirdPartyClient[emulatorPinVirshModel](&cpuAffinities, "virsh-domain-get-pinned-cpu-core.sh", host.User, host.Ip, domain.Name)
 			if err != nil {
 				return err
 			}
-			for _, server := range servers {
-				err := RunThirdPartyClient[any]("openstack-shelve-offload-server.sh", server.Id, nil)
+			isShelve := false
+			for _, cpuAffinity := range cpuAffinities {
+				pinnedCore, _ := strconv.Atoi(strings.Split(cpuAffinity.EmulatorCPUAffinity, "*: ")[1])
+				if slices.Contains(host.DynamicCoreIds, pinnedCore) {
+					isShelve = true
+				}
+			}
+			if isShelve {
+				var servers []osServerModel
+				err := RunThirdPartyClient[osServerModel](&servers, "openstack-get-server-by-domain.sh", domain.Name)
 				if err != nil {
 					return err
 				}
+				for _, server := range servers {
+					err := RunThirdPartyClient[any](nil, "openstack-shelve-offload-server.sh", server.Id)
+					if err != nil {
+						return err
+					}
+				}
 			}
+		}
+
+		// Putting green cores to sleep.
+		fmt.Printf("gc-sleep: calling external power apis: %s...", host.Ip)
+		err = RunThirdPartyClient[any](nil, "gc-controller-sleep.sh", host.Ip)
+		if err != nil {
+			fmt.Printf("failed to call external power api %s to wake...", host.Ip)
 		}
 	}
 	return nil
@@ -56,31 +66,27 @@ func (o *GreenCoreMgt) triggerTransition(isPutToSleep bool) error {
 	fmt.Println("putting gc to sleep...")
 	// order matters: omit core at the middleware layer and then physically change core power status.
 	o.setPollingEndpointToSleep()
-	err := o.shelveAllRunningInstancesOnGreenCore()
+	err := o.evictVMsOnGreenCores()
 	if err != nil {
 		return fmt.Errorf("failed at shelving possible instances using green core: %w", err)
 	}
-	o.putGcToSleepInHost()
+	//o.putGcToSleepInHost()
 	return nil
 }
 
 func (o *GreenCoreMgt) setPollingEndpointToAwake() {
 	o.IsGreenCoreAwake = true
 	// need to wait until os is properly updated. since this service serves multiple worker node, its not scalable to implement synchrounous check.
-	fmt.Println("waiting to allow openstack to update...")
-	time.Sleep(10 * time.Second)
-	fmt.Println("waited. assume openstack is updated...")
+	//fmt.Println("waiting to allow openstack to update...")
+	//time.Sleep(10 * time.Second)
+	//fmt.Println("waited. assume openstack is updated...")
 }
 
 func (o *GreenCoreMgt) setPollingEndpointToSleep() {
 	// Expects openstack to omit green core from pCPU list, through polling api.
 	o.IsGreenCoreAwake = false
 	// need to wait until os is properly updated. since this service serves multiple worker node, its not scalable to implement synchrounous check.
-	fmt.Println("waiting to allow openstack to update...")
-	time.Sleep(10 * time.Second)
-	fmt.Println("waited. assume openstack is updated...")
-}
-
-func (o *GreenCoreMgt) isGreenCore(pinnedCore int) bool {
-	return uint(pinnedCore) == o.greenCoreId
+	//fmt.Println("waiting to allow openstack to update...")
+	//time.Sleep(10 * time.Second)
+	//fmt.Println("waited. assume openstack is updated...")
 }

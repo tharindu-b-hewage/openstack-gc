@@ -7,8 +7,8 @@ import (
 	"os/exec"
 )
 
-func RunThirdPartyClient[T any](script string, arg string, obj *[]T) error {
-	cmd := exec.Command("sh", script, arg)
+func RunThirdPartyClient[T any](obj *[]T, args ...string) error {
+	cmd := exec.Command("sh", args...)
 	cmd.Stderr = os.Stderr // or any other io.Writer
 	out, err := cmd.Output()
 	if err != nil {
@@ -25,17 +25,21 @@ func RunThirdPartyClient[T any](script string, arg string, obj *[]T) error {
 }
 
 func (o *GreenCoreMgt) putGcToAwakeInHost() {
-	fmt.Printf("gc-awake: calling external power apis...")
-	err := RunThirdPartyClient[any]("gc-controller-wake.sh", "", nil)
-	if err != nil {
-		fmt.Printf("failed to call external power api to wake...")
+	for _, host := range o.conf.ComputeHosts {
+		fmt.Printf("gc-awake: calling external power apis: %s...", host.Ip)
+		err := RunThirdPartyClient[any](nil, "gc-controller-wake.sh", host.Ip)
+		if err != nil {
+			fmt.Printf("failed to call external power api %s to wake...", host.Ip)
+		}
 	}
 }
 
 func (o *GreenCoreMgt) putGcToSleepInHost() {
-	fmt.Printf("gc-sleep: calling external power apis...")
-	err := RunThirdPartyClient[any]("gc-controller-sleep.sh", "", nil)
-	if err != nil {
-		fmt.Printf("failed to call external power api to wake...")
+	for _, host := range o.conf.ComputeHosts {
+		fmt.Printf("gc-sleep: calling external power apis: %s...", host.Ip)
+		err := RunThirdPartyClient[any](nil, "gc-controller-sleep.sh", host.Ip)
+		if err != nil {
+			fmt.Printf("failed to call external power api %s to wake...", host.Ip)
+		}
 	}
 }
