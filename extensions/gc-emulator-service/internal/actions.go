@@ -7,8 +7,9 @@ import (
 	"strings"
 )
 
-func (o *GreenCoreMgt) shelveAllRunningInstancesOnGreenCore() error {
+func (o *GreenCoreMgt) evictVMsOnGreenCores() error {
 	for _, host := range o.conf.ComputeHosts {
+		// Evicting VMs pinned to green cores.
 		var domains []domainsVirshModel
 		err := RunThirdPartyClient[domainsVirshModel](&domains, "virsh-list-domains.sh", host.User, host.Ip)
 		if err != nil {
@@ -41,6 +42,13 @@ func (o *GreenCoreMgt) shelveAllRunningInstancesOnGreenCore() error {
 				}
 			}
 		}
+
+		// Putting green cores to sleep.
+		fmt.Printf("gc-sleep: calling external power apis: %s...", host.Ip)
+		err = RunThirdPartyClient[any](nil, "gc-controller-sleep.sh", host.Ip)
+		if err != nil {
+			fmt.Printf("failed to call external power api %s to wake...", host.Ip)
+		}
 	}
 	return nil
 }
@@ -58,11 +66,11 @@ func (o *GreenCoreMgt) triggerTransition(isPutToSleep bool) error {
 	fmt.Println("putting gc to sleep...")
 	// order matters: omit core at the middleware layer and then physically change core power status.
 	o.setPollingEndpointToSleep()
-	err := o.shelveAllRunningInstancesOnGreenCore()
+	err := o.evictVMsOnGreenCores()
 	if err != nil {
 		return fmt.Errorf("failed at shelving possible instances using green core: %w", err)
 	}
-	o.putGcToSleepInHost()
+	//o.putGcToSleepInHost()
 	return nil
 }
 
