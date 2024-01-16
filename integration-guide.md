@@ -56,7 +56,7 @@ compute-hosts:
    - Make sure `virsh-json` is detected and identified as a command.
 10. Run `./gc-emulator-service conf.yaml` to start the service (consider creating a screen `screen -S gc-emulation-scr` -> run and detach, if you wish to run as a background process - so chances for os to terminate will be limited).
 9. In each compute host, copy `gc-controller` binary from the latest release. Refer core-power-mgt repo and create a config file. Make sure
-core ids and sleep states are correct. Then run `./gc-controller conf.yaml` to start the service, in each compute host. Do the same in the controller node, as we use it as a compute node as well  (consider creating a screen `screen -S gc-emulation-scr` -> run and detach, if you wish to run as a background process - so chances for os to terminate will be limited).
+core ids and sleep states are correct. In the same repo, copy all `.sh` scripts as well. Also, install `virsh-json` via go and copy that binary to the same folder. Then run `./gc-controller conf.yaml` to start the service, in each compute host. Do the same in the controller node, as we use it as a compute node as well  (consider creating a screen `screen -S gc-emulation-scr` -> run and detach, if you wish to run as a background process - so chances for os to terminate will be limited).
 10. Allow controller to discover all nodes with `nova-manage cell_v2 discover_hosts --verbose`
 11. Now all supplementary services are up and running. Lets deploy Openstack. In the controller node, run `./stack.sh`.
 11. Once Openstack is up and running, deploy devstack in each compute node. But for them we use below `local.conf` file.
