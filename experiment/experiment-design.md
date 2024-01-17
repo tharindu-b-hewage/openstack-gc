@@ -1,6 +1,6 @@
 ### Experiment design
 
-We need to replay a production VM arrival trace on the system. We can evaluate different packing strategies 
+We need to replay a production VM arrival trace on the system. We can evaluate different packing strategies
 then.
 
 Limitation is inventory of the deployment(36 cpu cores) is smaller than of a cloud inventory (~15k+ machines).
@@ -30,10 +30,10 @@ A five node Openstack cluster with green cores enabled.
 - 4 cores: 4 Regular + 1 Green
 - 4 cores: 4 Regular + 1 Green \[Physical Access\]
 
-One of the machine provides admin access to bios, and provides host os that runs on bare-metal. 
+One of the machine provides admin access to bios, and provides host os that runs on bare-metal.
 
 Physical access machine provides power stats, as well as true control over CPU core power management. All machines
-provide a packing inventory. Therefore, packing metrics such as green score, density and utilization are calculated 
+provide a packing inventory. Therefore, packing metrics such as green score, density and utilization are calculated
 all over the cluster and physical machine provide power consumption metrics.
 
 ### Trace goals
@@ -42,12 +42,15 @@ Generated trace should roughly utilize inventory around 70-80% (=production clou
 
 ### Workload sampling
 
-First, we derive a normalized arrival trace. i.e. We calculate normalized values for the followings in a given time point, `t`.
+#### Trace normalization
+
+First, we derive a normalized arrival trace. i.e. We calculate normalized values for the followings in a given time
+point, `t`.
 
 Pre-values
 
 - `VCPU_MAX`: Maximum number of vcpu count in an arrived VM
-- `Count_MAX`: Maximum number of arrived VMs in a given time 
+- `Count_MAX`: Maximum number of arrived VMs in a given time
 - `LIFETIME_MAX`: Largest VM lifetime
 
 At `t=t`
@@ -60,5 +63,23 @@ At `t=t`
 
 Doing this for all time-points yields a normalized trace.
 
-Then we pick a time-frame for the experiment, and scale up `4` by multiplying it with max pcpu size available. And scale
-up `1,2,3` such that cluster utilization is `~80%` with best-fit. 
+[trace-normalization](trace-normalization) module contains work for this.
+
+#### Trace Generation
+
+The generator takes 3 arguments.
+
+1. Maximum number of VM requests at a time
+2. Maximum lifetime of a VM in fraction of days
+3. Maximum vcpu size a VM can take
+
+It monitors the time, and in each time step, generates a certain number of VM requests.
+
+- Number of requests
+  - Max. value x normalized request count. Then those requests are grouped into regulars and evictables.
+  - If values do not derive integers, none of the requests are generated. Otherwise they are rounded to the nearest int value.
+  - For each request,
+    - VM lifetime
+      - Sampled from the probabilistic model sourced from lifetime distribution * Max. value.
+    - VM vcpu
+        - Sampled from the probabilistic model sourced from vcpu distribution * Max. value.
