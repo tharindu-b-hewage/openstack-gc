@@ -48,6 +48,7 @@ Pre-values
 
 - `VCPU_MAX`: Maximum number of vcpu count in an arrived VM
 - `Count_MAX`: Maximum number of arrived VMs in a given time 
+- `LIFETIME_MAX`: Largest VM lifetime
 
 At `t=t`
 
@@ -55,6 +56,7 @@ At `t=t`
 2. `Regular VMs` = `regular vm count`/`actual requests`
 3. `Evictable VMs` = `evictable vm count`/`actual requests`
 4. `VM type` = Distribution of `vcpu count`/`VCPU_MAX`
+5. `Lifetime` = Distribution of `lifetime`/`LIFETIME_MAX`
 
 Doing this for all time-points yields a normalized trace.
 
