@@ -1,6 +1,6 @@
 import csv
 import sys
-from nrl_trace_handler import get_trace_at, get_time_after, get_headers, get_bounds_for_percentile
+from pre_process_reader import get_trace_at, get_time_after, get_headers, get_bounds_for_percentile
 
 #     make sure to set envs
 #     USER = os.getenv("USER")
@@ -18,7 +18,7 @@ max_consts = get_bounds_for_percentile(time_from=interval_start, time_to=interva
 
 time = interval_start
 records = []
-with open('./nrl_azure_packing_2020.csv', 'w') as csvfile:
+with open('4-min-data/nrl_azure_packing_2020.csv', 'w') as csvfile:
     writer = csv.DictWriter(csvfile, fieldnames=get_headers())
     writer.writeheader()
     while time < interval_ends:

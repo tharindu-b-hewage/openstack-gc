@@ -63,7 +63,7 @@ At `t=t`
 
 Doing this for all time-points yields a normalized trace.
 
-[trace-normalization](trace-normalization) module contains work for this.
+[trace-normalization](trace-pre-process) module contains work for this.
 
 #### Trace Generation
 

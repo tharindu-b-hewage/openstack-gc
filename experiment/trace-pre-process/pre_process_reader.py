@@ -123,15 +123,19 @@ def get_trace_at(time_in_days_fraction=0.0, max_consts={}):
 
                 if is_valid:
                     request_count += 1
-                    regular_vm_count += 1 if not is_evictable else 0
-                    evictable_vm_count += 1 if is_evictable else 0
+
+                # We treat evictable as a characterictic and is independent of other parameters. then, say omiting an
+                # evictable vm because its vcpu is out of range, makes it dependent. so regardless of others,
+                # we count this property.
+                regular_vm_count += 1 if not is_evictable else 0
+                evictable_vm_count += 1 if is_evictable else 0
 
             bkt = []
             if collect(max=max_consts['count_max'], min=max_consts['count_min'], to_add=bkt,
                        val=request_count):
                 request_count = bkt[0]
-                reg_portion = regular_vm_count / request_count
-                evict_portion = evictable_vm_count / request_count
+                reg_portion = regular_vm_count / (regular_vm_count + evictable_vm_count)
+                evict_portion = evictable_vm_count / (regular_vm_count + evictable_vm_count)
             else:
                 request_count = 0  # outliers omitted.
                 reg_portion = 0

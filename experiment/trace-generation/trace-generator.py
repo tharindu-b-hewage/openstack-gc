@@ -1,3 +1,4 @@
+import math
 import sys
 import time
 
@@ -25,12 +26,11 @@ nrl_trace_file = sys.argv[1]
 t_start = float(sys.argv[2])
 t_stop = float(sys.argv[3])
 
-max_rq_cnt = float(sys.argv[4])
-max_lft = float(sys.argv[5])
-max_vcpu_cnt = float(sys.argv[6])
+# max_rq_cnt = float(sys.argv[4])
+# max_lft = float(sys.argv[5])
+# max_vcpu_cnt = float(sys.argv[6])
 
-print("nrl_trace_file: ", nrl_trace_file, " t_start: ", t_start, " t_stop: ", t_stop, " max_rq_cnt: ", max_rq_cnt,
-      "max_lft: ", max_lft, "max_vcpu_cnt: ", max_vcpu_cnt)
+print("nrl_trace_file: ", nrl_trace_file, " t_start: ", t_start, " t_stop: ", t_stop)
 
 df = pd.read_csv(nrl_trace_file)
 df = df[t_start <= df['time']]
@@ -39,8 +39,8 @@ df = df[df['time'] <= t_stop]
 
 def generate_rqs(rq_count, row, time, type, bucket):
     for rq in range(rq_count):
-        lifetime = pick_random(dst=eval(row['lifetime_distribution'][0])) * max_lft
-        vcpu = round(pick_random(dst=eval(row['vcpu_distribution'][0])) * max_vcpu_cnt)
+        lifetime = pick_random(dst=eval(row['lifetime_distribution'][0]))
+        vcpu = round(pick_random(dst=eval(row['vcpu_distribution'][0])))
         if vcpu > 0:
             bucket.append({
                 'name': 'VM-' + str(time) + '-' + type + '-' + str(rq),
@@ -56,15 +56,22 @@ for idx, t in enumerate(t_s):
     row = df.loc[df['time'] == t].to_dict('list')
 
     vm_rqs = []
-    total_rq_cnt = row['request_count'][0] * max_rq_cnt
-    reg_rq_cnt = round(total_rq_cnt * row['regular_vm_count'][0])
-    evct_rq_cnt = round(total_rq_cnt * row['evictable_vm_count'][0])
+    total_rq_cnt = row['request_count'][0]
+    # here rounding is upto us. we favour more evictable vms, assuming fine-grain trace analysis allows us to realize
+    # slightly larger evictable vm types.
+    reg_rq_cnt = round(
+        math.floor(total_rq_cnt * row['regular_vm_count'][0])
+    )
+    evct_rq_cnt = round(
+        math.ceil(total_rq_cnt * row['evictable_vm_count'][0])
+    )
     if reg_rq_cnt > 0:
         generate_rqs(rq_count=reg_rq_cnt, row=row, time=t, type='regular', bucket=vm_rqs)
     if evct_rq_cnt > 0:
         generate_rqs(rq_count=evct_rq_cnt, row=row, time=t, type='evictable', bucket=vm_rqs)
-    print('row', row)
-    print('vm reqs', vm_rqs)
+
+    print('row: ', row, 'rq: ', vm_rqs, 'total rq: ', total_rq_cnt, 'evct: ', evct_rq_cnt, ' reg: ', reg_rq_cnt)
+
     os_manager.handle_expired_vms(clk=t)
     os_manager.dispatch(vm_rqs=vm_rqs, clk=t)
 
