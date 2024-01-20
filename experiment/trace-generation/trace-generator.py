@@ -2,8 +2,9 @@ import sys
 import time
 
 import pandas as pd
+
+from external import OsManager
 from math_utils import pick_random
-from external import dispatch
 
 # 1 - normalized azure trace csv
 # 2 - starting time
@@ -13,9 +14,12 @@ from external import dispatch
 # 6 - max vcpu of an instant
 
 # Example:
-# python3 trace-generator.py 4-min-test/nrl_azure_packing_2020.csv 0.819502315018326 0.8208333 5 0.00277778 12
+# python3 trace-generator.py 4-min-test/nrl_azure_packing_2020.csv 0.819502315018326 0.8208333 5 14.93 12
 # csv file is generated for 4 minutes (0.00277778 days) between 0.819502315018326 and 0.8208333. max req. set to 5 and
 # max lifetime is the duration of experiment.
+# Lifetime max:
+# -- 24hours: 89.6387860183604 (unscaled val. in the trace)
+# -- 4 min: 14.93 (above linearly scaled down for 4)
 
 nrl_trace_file = sys.argv[1]
 t_start = float(sys.argv[2])
@@ -47,6 +51,7 @@ def generate_rqs(rq_count, row, time, type, bucket):
 
 
 t_s = df['time'].values
+os_manager = OsManager()
 for idx, t in enumerate(t_s):
     row = df.loc[df['time'] == t].to_dict('list')
 
@@ -58,11 +63,16 @@ for idx, t in enumerate(t_s):
         generate_rqs(rq_count=reg_rq_cnt, row=row, time=t, type='regular', bucket=vm_rqs)
     if evct_rq_cnt > 0:
         generate_rqs(rq_count=evct_rq_cnt, row=row, time=t, type='evictable', bucket=vm_rqs)
-
-    dispatch(vm_rqs=vm_rqs)
+    print('row', row)
+    print('vm reqs', vm_rqs)
+    os_manager.handle_expired_vms(clk=t)
+    os_manager.dispatch(vm_rqs=vm_rqs, clk=t)
 
     if (idx + 1) < len(t_s):
         t_to = t_s[idx + 1] - t
         wait_for = t_to * (24 * 3600)
-        print("time: ", t, "total requested: ", len(vm_rqs), "waiting for: ", wait_for)
+        print("time: ", t, "total requested: ", len(vm_rqs), "waiting for: ", wait_for, "cls util: ",
+              os_manager.get_utilization())
         time.sleep(wait_for)
+
+os_manager.dump(file_path='./trace-emulation-report_' + str(time.time()) + '.csv')
