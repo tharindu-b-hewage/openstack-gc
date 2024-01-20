@@ -29,3 +29,7 @@ with open('nrl_azure_packing_2020.csv', 'w') as csvfile:
         print("analyze-- time: ", time)
 
 print("Done! Please check the csv file at current directory")
+
+
+
+#todo lifetime is -1 observed. fix this!

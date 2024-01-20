@@ -40,46 +40,22 @@ all over the cluster and physical machine provide power consumption metrics.
 
 Generated trace should roughly utilize inventory around 70-80% (=production cloud inventory data)
 
-### Workload sampling
+#### pre-process
 
-#### Trace normalization
+We select X-percentile of the workload. say 90th percentile.
 
-First, we derive a normalized arrival trace. i.e. We calculate normalized values for the followings in a given time
-point, `t`.
+We further pick a time period, t1 and t2. ex: 0.0 - 1.0.
 
-Pre-values
+Within the time period, we explore each time step. calculate number of requests in each step, to get request distribution. obtain vcpu distribution
+and lifetime distribution. then for the X-th percentile, we find the max number for each (y for vcp, z for requests, etc).
 
-- `VCPU_MAX`: Maximum number of vcpu count in an arrived VM
-- `Count_MAX`: Maximum number of arrived VMs in a given time
-- `LIFETIME_MAX`: Largest VM lifetime
+We then reduce the trace by converting each time step via the calculate max values.
 
-At `t=t`
+if count is too much, we omit all requests from that step. if vcpu is too much, we omit that vm request. likewise.
 
-1. `Request Count` = `actual requests`/`COUNT_MAX`
-2. `Regular VMs` = `regular vm count`/`actual requests`
-3. `Evictable VMs` = `evictable vm count`/`actual requests`
-4. `VM type` = Distribution of `vcpu count`/`VCPU_MAX`
-5. `Lifetime` = Distribution of `lifetime`/`LIFETIME_MAX`
+result is reduced trace.
 
-Doing this for all time-points yields a normalized trace.
+when pre-process script ran, initially it prits max values. so percentile can be adjusted by guessing for the size of the
+inventory we have.
 
-[trace-normalization](trace-pre-process) module contains work for this.
-
-#### Trace Generation
-
-The generator takes 3 arguments.
-
-1. Maximum number of VM requests at a time
-2. Maximum lifetime of a VM in fraction of days
-3. Maximum vcpu size a VM can take
-
-It monitors the time, and in each time step, generates a certain number of VM requests.
-
-- Number of requests
-  - Max. value x normalized request count. Then those requests are grouped into regulars and evictables.
-  - If values do not derive integers, none of the requests are generated. Otherwise they are rounded to the nearest int value.
-  - For each request,
-    - VM lifetime
-      - Sampled from the probabilistic model sourced from lifetime distribution * Max. value.
-    - VM vcpu
-        - Sampled from the probabilistic model sourced from vcpu distribution * Max. value.
+ex: for 26 cores inventory, maybe 4 requests max at a time suits. then 70th percentile is better.
