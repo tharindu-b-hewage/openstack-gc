@@ -18,7 +18,7 @@ max_consts = get_bounds_for_percentile(time_from=interval_start, time_to=interva
 
 time = interval_start
 records = []
-with open('4-min-data/nrl_azure_packing_2020.csv', 'w') as csvfile:
+with open('nrl_azure_packing_2020.csv', 'w') as csvfile:
     writer = csv.DictWriter(csvfile, fieldnames=get_headers())
     writer.writeheader()
     while time < interval_ends:

@@ -1,10 +1,11 @@
 import math
 import os
+import sys
 
 import numpy as np
 from mysql.connector import connect
 
-PERCENTILE = 90
+PERCENTILE = int(sys.argv[3])
 
 USER = os.getenv("USER")
 PASSWORD = os.getenv("PASSWORD")
