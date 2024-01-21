@@ -59,3 +59,12 @@ when pre-process script ran, initially it prits max values. so percentile can be
 inventory we have.
 
 ex: for 26 cores inventory, maybe 4 requests max at a time suits. then 70th percentile is better.
+
+#### Integration test
+
+1. run the trace generator file. its responsibility to create vms and delete them after end of life. also, it switches green core status by calling external api.
+2. gc-emulation-service prints a log when a vm is evicted. this entry includes full vm name with regular or evictable type information.
+3. power monitoring screen sessions are active in the physical node. it captures all power metrics throughout.
+4. green score polling script also keeps polling and dumps green score locally.
+
+Once test ends, we can get power information, eviction information, and green score.

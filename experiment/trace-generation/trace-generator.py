@@ -8,6 +8,8 @@ import pandas as pd
 from external import RequestsManager
 from math_utils import pick_random
 
+import requests as rq
+
 # 1 - normalized azure trace csv
 # 2 - starting time
 # 3 - end time
@@ -26,10 +28,15 @@ from math_utils import pick_random
 nrl_trace_file = sys.argv[1]
 t_start = float(sys.argv[2])
 t_stop = float(sys.argv[3])
+renewable_trace = sys.argv[4]
 
 # max_rq_cnt = float(sys.argv[4])
 # max_lft = float(sys.argv[5])
 # max_vcpu_cnt = float(sys.argv[6])
+
+r_df = pd.read_csv(renewable_trace)
+# r_df = r_df[t_start <= r_df['time']]
+# r_df = r_df[r_df['time'] <= t_stop]
 
 print("nrl_trace_file: ", nrl_trace_file, " t_start: ", t_start, " t_stop: ", t_stop)
 
@@ -38,6 +45,7 @@ df = df[t_start <= df['time']]
 df = df[df['time'] <= t_stop]
 
 EXPERIMENT_UUID = uuid.uuid4()
+print("Experiment UUID: ", EXPERIMENT_UUID)
 
 
 def generate_rqs(rq_count, row, time, type, bucket):
@@ -55,7 +63,31 @@ def generate_rqs(rq_count, row, time, type, bucket):
 
 t_s = df['time'].values
 os_manager = RequestsManager()
+
+
+def signal_renwble_status(time):
+    #print(time)
+    #print(r_df)
+    filt_r_df = r_df[r_df['time'] >= time]
+    #print(filt_r_df)
+    sorted_r_df = filt_r_df.sort_values(by=['time'])
+    #print(sorted_r_df)
+    first_rw = sorted_r_df.iloc[0]
+    #print(first_rw)
+    renw_val = first_rw['val']
+    #print(renw_val)
+    is_renew_available = renw_val > 0
+    is_cores_awake = rq.get(url='http://100.64.42.11:4000/gc/is-asleep').json()['is-awake']
+    print('renwble status:', is_renew_available, 'gc status:', is_cores_awake)
+    if is_renew_available != is_cores_awake:
+        print('triggering core sleep switch. this may take around 2 mints...')
+        rp = rq.post(url='http://100.64.42.11:4000/gc/dev/switch')
+        print('done. triggered core sleep switch:', rp)
+
+
 for idx, t in enumerate(t_s):
+    signal_renwble_status(time=t)
+
     row = df.loc[df['time'] == t].to_dict('list')
 
     vm_rqs = []
@@ -72,8 +104,6 @@ for idx, t in enumerate(t_s):
         generate_rqs(rq_count=reg_rq_cnt, row=row, time=t, type='regular', bucket=vm_rqs)
     if evct_rq_cnt > 0:
         generate_rqs(rq_count=evct_rq_cnt, row=row, time=t, type='evictable', bucket=vm_rqs)
-
-    #print('row: ', row, 'rq: ', vm_rqs, 'total rq: ', total_rq_cnt, 'evct: ', evct_rq_cnt, ' reg: ', reg_rq_cnt)
 
     os_manager.handle_expired_vms(clk=t)
     os_manager.dispatch(vm_rqs=vm_rqs, clk=t)
