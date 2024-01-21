@@ -2,6 +2,7 @@ package internal
 
 import (
 	"fmt"
+	"log"
 	"slices"
 	"strconv"
 	"strings"
@@ -35,6 +36,7 @@ func (o *GreenCoreMgt) evictVMsOnGreenCores() error {
 					return err
 				}
 				for _, server := range servers {
+					log.Printf("vm evicted: %s\n", server.Name)
 					err := RunThirdPartyClient[any](nil, "openstack-shelve-offload-server.sh", server.Id)
 					if err != nil {
 						return err

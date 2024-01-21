@@ -1,7 +1,8 @@
 package internal
 
 type osServerModel struct {
-	Id string `json:"ID"`
+	Id   string `json:"ID"`
+	Name string `json:"Name"`
 }
 
 type domainsVirshModel struct {
