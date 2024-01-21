@@ -23,13 +23,18 @@ class RequestsManager:
                 resp = self.delete_vm(vm)
                 if not resp:
                     # VM does not exist. Must be evicted.
+                    print('failed deletion. marking as evicted: ', vm['name'])
                     vm = self.created_vms[vm_name]
                     vm['is-evicted'] = True
+                else:
+                    vm['is-deleted'] = True
+                    vm['end-of-life'] = 100  # a very large value that we will never reach
 
     def create_vms(self, vm_rqs, clk):
         for vm in vm_rqs:
             resp = self.create_vm(vm, clk)
-            if resp is not None:
+            if resp:
+                print('marked successful vm creation of: ', vm['name'])
                 vm['end-of-life'] = clk + vm['lifetime']
                 vm['is-evicted'] = False  # assume vm is going to live a full life.
                 self.created_vms[vm['name']] = vm

@@ -1,6 +1,7 @@
 import math
 import sys
 import time
+import uuid
 
 import pandas as pd
 
@@ -36,6 +37,8 @@ df = pd.read_csv(nrl_trace_file)
 df = df[t_start <= df['time']]
 df = df[df['time'] <= t_stop]
 
+EXPERIMENT_UUID = uuid.uuid4()
+
 
 def generate_rqs(rq_count, row, time, type, bucket):
     for rq in range(rq_count):
@@ -43,7 +46,7 @@ def generate_rqs(rq_count, row, time, type, bucket):
         vcpu = round(pick_random(dst=eval(row['vcpu_distribution'][0])))
         if vcpu > 0:
             bucket.append({
-                'name': 'VM-' + str(time) + '-' + type + '-' + str(rq),
+                'name': 'VM-' + str(EXPERIMENT_UUID) + '-' + str(time) + '-' + type + '-' + str(rq),
                 'type': type,
                 'lifetime': lifetime,
                 'vcpu': vcpu
