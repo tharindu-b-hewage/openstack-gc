@@ -4,7 +4,7 @@ import time
 
 import pandas as pd
 
-from external import OsManager
+from external import RequestsManager
 from math_utils import pick_random
 
 # 1 - normalized azure trace csv
@@ -15,7 +15,7 @@ from math_utils import pick_random
 # 6 - max vcpu of an instant
 
 # Example:
-# python3 trace-generator.py 4-min-test/nrl_azure_packing_2020.csv 0.819502315018326 0.8208333 5 14.93 12
+# python3 trace-generator.py 4-min-test/nrl_azure_packing_2020_perc_55.csv 0.819502315018326 0.8208333 5 14.93 12
 # csv file is generated for 4 minutes (0.00277778 days) between 0.819502315018326 and 0.8208333. max req. set to 5 and
 # max lifetime is the duration of experiment.
 # Lifetime max:
@@ -51,7 +51,7 @@ def generate_rqs(rq_count, row, time, type, bucket):
 
 
 t_s = df['time'].values
-os_manager = OsManager()
+os_manager = RequestsManager()
 for idx, t in enumerate(t_s):
     row = df.loc[df['time'] == t].to_dict('list')
 

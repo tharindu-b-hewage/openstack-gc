@@ -1,7 +1,8 @@
 import csv
+from openstack_client import create_flavours, create_vm, delete_vm
 
 
-class OsManager:
+class RequestsManager:
     '''OsManager encapsulate vm lifecycle management based on the trace information.
     It further provides an insight on core utilization.
     '''
@@ -19,8 +20,8 @@ class OsManager:
     def handle_expired_vms(self, clk):
         for vm_name, vm in self.created_vms.items():
             if vm['end-of-life'] <= clk:
-                resp = self.delete_vm(vm_name)
-                if resp is None:
+                resp = self.delete_vm(vm)
+                if not resp:
                     # VM does not exist. Must be evicted.
                     vm = self.created_vms[vm_name]
                     vm['is-evicted'] = True
@@ -35,10 +36,10 @@ class OsManager:
                 self.local_tracking_used_cores += vm['vcpu']
 
     def create_vm(self, vm, clk):
-        return True
+        return create_vm(vm)
 
-    def delete_vm(self, vm_name):
-        return True
+    def delete_vm(self, vm):
+        return delete_vm(vm)
 
     def get_utilization(self):
         return self.local_tracking_used_cores / self.local_tracking_total_cores
