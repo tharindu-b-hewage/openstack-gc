@@ -7,7 +7,7 @@ class OsManager:
     '''
 
     def __init__(self):
-        self.local_tracking_total_cores = 26
+        self.local_tracking_total_cores = 36
         self.local_tracking_used_cores = 0
         self.created_vms = {}
         self.evictedVMs = []
@@ -44,7 +44,7 @@ class OsManager:
         return self.local_tracking_used_cores / self.local_tracking_total_cores
 
     def dump(self, file_path):
-        header = ['name', 'type', 'is-evicted']
+        header = ['name', 'type', 'vcpu', 'lifetime', 'is-evicted']
 
         with open(file_path, 'w', encoding='UTF8') as f:
             writer = csv.writer(f)
@@ -56,5 +56,7 @@ class OsManager:
                 writer.writerow([
                     vm['name'],
                     vm['type'],
+                    vm['vcpu'],
+                    vm['lifetime'],
                     vm['is-evicted']
                 ])

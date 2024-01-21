@@ -70,7 +70,7 @@ for idx, t in enumerate(t_s):
     if evct_rq_cnt > 0:
         generate_rqs(rq_count=evct_rq_cnt, row=row, time=t, type='evictable', bucket=vm_rqs)
 
-    print('row: ', row, 'rq: ', vm_rqs, 'total rq: ', total_rq_cnt, 'evct: ', evct_rq_cnt, ' reg: ', reg_rq_cnt)
+    #print('row: ', row, 'rq: ', vm_rqs, 'total rq: ', total_rq_cnt, 'evct: ', evct_rq_cnt, ' reg: ', reg_rq_cnt)
 
     os_manager.handle_expired_vms(clk=t)
     os_manager.dispatch(vm_rqs=vm_rqs, clk=t)

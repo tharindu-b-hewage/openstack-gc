@@ -7,12 +7,13 @@ def pick_random(dst):
         return dst[0]
 
     lower_bd = min(dst)
-    upper_bd = min(dst)
+    upper_bd = max(dst)
     kde = scipy.stats.gaussian_kde(dst)
 
     # kde can include out of range.
-    val = -1
-    while lower_bd > val > upper_bd:
+    sample = kde.resample(size=1)
+    val = sample[0][0]
+    while lower_bd >= val >= upper_bd:
         sample = kde.resample(size=1)
         val = sample[0][0]
     return val
