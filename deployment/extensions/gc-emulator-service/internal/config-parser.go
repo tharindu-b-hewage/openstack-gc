@@ -10,6 +10,7 @@ type ComputeHost struct {
 	Ip             string `yaml:"ip"`
 	User           string `yaml:"user"`
 	DynamicCoreIds []int  `yaml:"dynamic-core-ids"`
+	StableCoreIds  []int  `yaml:"stable-core-ids"`
 }
 
 type ConfYaml struct {
