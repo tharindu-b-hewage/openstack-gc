@@ -33,7 +33,7 @@ def create_vm(vm):
     print('attempting to create vm: ', vm['name'])
     try:
         cmd = "openstack server create --nic net-id=\"public\" --image \"cirros-0.6.2-x86_64-disk\" --flavor \"pinned.vcpu-" + str(
-            round(vm['vcpu'])) + "\" \"" + vm['name'] + "\" --wait "
+            round(vm['vcpu'])) + "\" \"" + vm['name'] + "\" --wait --hint type="+vm['type']+" "
         returned_output = subprocess.check_output(cmd, shell=True)
         print('vm creation for vm:', vm, returned_output.decode("utf-8"))
         return True

@@ -61,3 +61,13 @@ func (o *GreenCoreMgt) Switch(c *gin.Context) {
 		IsAwake: o.IsGreenCoreAwake,
 	})
 }
+
+func (o *GreenCoreMgt) GetCoreUsage(c *gin.Context) {
+
+	usages, err := o.obtainCoreUsage()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, "Something went wrong. Check admin logs.")
+		return
+	}
+	c.IndentedJSON(http.StatusOK, usages)
+}

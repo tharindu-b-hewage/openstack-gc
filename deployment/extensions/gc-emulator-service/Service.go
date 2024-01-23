@@ -27,6 +27,7 @@ func main() {
 	router := gin.Default()
 	router.POST("/gc/begin", manager.Begin)
 	router.GET("/gc/is-asleep", manager.IsAsleep)
+	router.GET("/gc/core-usage", manager.GetCoreUsage)
 	router.POST("/gc/dev/switch", manager.Switch)
 
 	err = router.Run("100.64.42.11:4000")
