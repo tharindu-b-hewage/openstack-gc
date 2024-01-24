@@ -105,6 +105,8 @@ authenticate with Openstack APIs, stop and restart the emulation service once th
 17. Initially all green cores are asleep. So call emulation API and switch the status to wake them up. Then keep creating VMs to consume all cores in the mini-cluster.
 18. Now switch the green cores to sleep through emulation API. This should delete all VMs occupied green cores.
 19. Ta da! You have a working cluster with Green Cores. Try experimenting with different scheduling approaches so that unstable Green Cores can be effectively utilized.
++
+20. feature patch includes green fit via modified compute filter and cpu weighter. Make sure to configure nova.conf, such that only weighter used is the cpu weighter.
 
 For health check, run [health-check.py](health-check.py) in the same folder as `gc-emulator-service` binary. 
 `python3 health-check.py <controller-node-ip>`. It reads config file, and check health for `gc-emulation` and all `gc-controller` services.
