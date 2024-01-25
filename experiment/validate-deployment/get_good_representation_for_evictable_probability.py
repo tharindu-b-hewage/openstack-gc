@@ -13,3 +13,5 @@ print('90th quantile', df['perc'].quantile(0.90))
 # --> total:4699394,evictable:553911,reg:4145483
 # divide.
 print('alternative: total_evictables / total_requests = ', 0.11786860178142118)
+
+#todo need to implement exact rule as in ds simulator

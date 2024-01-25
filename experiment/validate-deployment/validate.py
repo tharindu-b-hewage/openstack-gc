@@ -35,13 +35,26 @@ with open('validation-trace.csv', 'w', encoding='UTF8', newline='') as f:
     # write the header
     writer.writerow(header)
 
-    for count in range(36):
+    servers_created = 0
+
+    max_created_servers = None
+    if sys.argv[2] is not None:
+        max_created_servers = int(sys.argv[2])
+
+    count_upper_limit = 200
+    if max_created_servers is None:
+        count_upper_limit = 36
+    for count in range(count_upper_limit):
+
+        if max_created_servers is not None and servers_created >= max_created_servers:
+            break
+
         t = time.time()
 
         vm_name = 'vm-validation-' + str(count)
 
         evictable_prob = float(sys.argv[1])
-        r_choice = numpy.random.choice(numpy.arange(0, 2), p=[(1-evictable_prob), evictable_prob])
+        r_choice = numpy.random.choice(numpy.arange(0, 2), p=[(1 - evictable_prob), evictable_prob])
         type = 'regular' if r_choice == 0 else 'evictable'
 
         vm_vcpu = 1
@@ -49,6 +62,7 @@ with open('validation-trace.csv', 'w', encoding='UTF8', newline='') as f:
         didFail = False
         try:
             server = create_server(conn=conn, vm_name=vm_name, type=type)
+            servers_created += 1
         except Exception as e:
             didFail = True
             print(e)
@@ -58,4 +72,4 @@ with open('validation-trace.csv', 'w', encoding='UTF8', newline='') as f:
         data = [t, vm_name, type, vm_vcpu, didFail, inventory]
         writer.writerow(data)
         f.flush()
-        print('processed ' + str(count) + '')
+        print('processed ' + str(count) + '', 'servers created: ' + str(servers_created))
