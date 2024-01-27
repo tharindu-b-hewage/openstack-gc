@@ -33,7 +33,13 @@ def get_power_stats():
                 if idx < len(row_data):
                     crnt_val = row_data[idx]
                     try:
-                        crnt_val = float(crnt_val)
+                        if col == 'Core':
+                            if crnt_val == '-':
+                                crnt_val = 'Overall'
+                            else:
+                                crnt_val = 'Core-' + str(crnt_val)
+                        else:
+                            crnt_val = float(crnt_val)
                     except:
                         crnt_val = None
                     val = crnt_val
@@ -43,3 +49,9 @@ def get_power_stats():
             df = pd.concat([df, row_df], ignore_index=True)
         df.reset_index(drop=True, inplace=True)
         return df
+
+
+def get_green_scores():
+    green_score_df = pd.read_csv('./pw-exp_2024-01-27-14-06/green-score-dump.csv')
+    green_score_df['interval(s)'] = 5
+    return green_score_df
