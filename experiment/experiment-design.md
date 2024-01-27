@@ -68,3 +68,17 @@ ex: for 26 cores inventory, maybe 4 requests max at a time suits. then 70th perc
 4. green score polling script also keeps polling and dumps green score locally.
 
 Once test ends, we can get power information, eviction information, and green score.
+
+#### Power test
+
+1. Fill the cluster with evictable vms == all cores utilized
+2. Find physical node's vms and delete them == one that we can access physically is now empty
+3. Create instances with rteval ready, for all cores.
+    - download centos7 image and upload that to openstack
+    - create an image with it + cpu pining enabled
+4. Run rteval for a while in all instances.
+5. start monitoring power and green score.
+6. wait until everything stabilize (maybe power consumption is stable), then switch green cores to sleep.
+7. wait for the system to stabilize again.
+8. Collect power and green score data.
+9. Delete all rteval vms.

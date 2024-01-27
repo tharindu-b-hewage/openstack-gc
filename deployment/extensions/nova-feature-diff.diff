@@ -1,0 +1,437 @@
+diff --git a/nova/conf/compute.py b/nova/conf/compute.py
+index de2743d8500..9cf7b3499c6 100644
+--- a/nova/conf/compute.py
++++ b/nova/conf/compute.py
+@@ -878,7 +878,56 @@
+   where ``VCPU`` resources should be allocated from.
+ * ``vcpu_pin_set``: A legacy option that this option partially replaces.
+ """),
+-    cfg.BoolOpt('live_migration_wait_for_vif_plug',
++cfg.StrOpt('cpu_dynamic_set',
++        help="""
++Mask of host CPUs that can undergone dynamic performance changes, such as being strictly low powered.
++
++Possible values:
++
++* A comma-separated list of physical CPU numbers that instance VCPUs can be
++  allocated from. Each element should be either a single CPU number, a range of
++  CPU numbers, or a caret followed by a CPU number to be excluded from a
++  previous range. For example::
++
++    cpu_dedicated_set = "4-12,^8,15"
++
++Related options:
++
++* ``[compute] cpu_stable_set``: This is the parent option for defining the superset
++  where ``VCPU`` resources should be allocated from. ``[compute] cpu_dynamic_set`` option complements 
++  this option by enabling physical CPU prioritization.
++"""),
++   cfg.StrOpt('cpu_stable_set',
++        help="""
++Mask of host CPUs that can be used for prioritized ``PCPU`` resources.
++
++Possible values:
++
++* A comma-separated list of physical CPU numbers that instance VCPUs can be
++  allocated from. Each element should be either a single CPU number, a range of
++  CPU numbers, or a caret followed by a CPU number to be excluded from a
++  previous range. For example::
++
++    cpu_dedicated_set = "4-12,^8,15"
++
++Related options:
++
++* ``[compute] cpu_dedicated_set``: This is the parent option for defining the superset
++  where ``VCPU`` resources should be allocated from. ``[compute] cpu_stable_set`` option complements 
++  this option by enabling physical CPU prioritization.
++"""),
++   cfg.StrOpt('cpu_sleep_info_endpoint',
++        help="""
++An endpoint which provides information cpu ids that are at the sleep mode. Such cpus are then considered offline in 
++openstack.
++
++Possible values:
++
++* A url to which this node can make a HTTP GET request without authentication (a security established resource). For example::
++
++    cpu_sleep_info_endpoint = "http://localhost:3000/gc-controller/is-asleep"
++"""),
++   cfg.BoolOpt('live_migration_wait_for_vif_plug',
+         default=True,
+         help="""
+ Determine if the source compute host should wait for a ``network-vif-plugged``
+diff --git a/nova/objects/numa.py b/nova/objects/numa.py
+index 36f51201b05..019ffeb28c6 100644
+--- a/nova/objects/numa.py
++++ b/nova/objects/numa.py
+@@ -98,6 +98,14 @@ def pin_cpus(self, cpus):
+         self.pinned_cpus |= cpus
+ 
+     def unpin_cpus(self, cpus):
++        #todo if the core is set offline, below check can fail, eventhough there are cpus that are not a part of available cpus right now.
++        #todo for now, we will disable this check. At least we should check if the cpu is a green core&in-sleep-mode by calling emulation service.
++        #todo this is also a valid bug, in the case of cpu offline. its worth exploring and fixing.
++        if (cpus - self.pcpuset) and ((self.pinned_cpus & cpus) != cpus):
++            # As a quick patch for our VERY SPECIFIC deployment and use cases, we assume this is a core that went to sleep.
++            self.pinned_cpus -= cpus
++            return
++
+         if cpus - self.pcpuset:
+             raise exception.CPUUnpinningUnknown(requested=list(cpus),
+                                                 available=list(self.pcpuset))
+diff --git a/nova/scheduler/filters/compute_filter.py b/nova/scheduler/filters/compute_filter.py
+index 21c7fd4d3d8..97134750d91 100644
+--- a/nova/scheduler/filters/compute_filter.py
++++ b/nova/scheduler/filters/compute_filter.py
+@@ -17,6 +17,7 @@
+ 
+ from nova.scheduler import filters
+ from nova import servicegroup
++from ..manager import CORE_USAGE
+ 
+ LOG = logging.getLogger(__name__)
+ 
+@@ -34,6 +35,7 @@ def __init__(self):
+ 
+     def host_passes(self, host_state, spec_obj):
+         """Returns True for only active compute nodes."""
++
+         service = host_state.service
+         if service['disabled']:
+             LOG.debug("%(host_state)s is disabled, reason: %(reason)s",
+@@ -45,4 +47,27 @@ def host_passes(self, host_state, spec_obj):
+                 LOG.warning("%(host_state)s has not been heard from in a "
+                             "while", {'host_state': host_state})
+                 return False
++        LOG.debug("tharindu-green-cores@ccompute_filter: spec_obj %(spec_obj)s", {'spec_obj': spec_obj})
++        LOG.debug("tharindu-green-cores@ccompute_filter: CORE_USAGE %(CORE_USAGE)s", {'CORE_USAGE': CORE_USAGE})
++        LOG.debug("tharindu-green-cores: CORE_USAGE['core_usage'] %(spec_obj)s", {'spec_obj': CORE_USAGE['core_usage']})
++        LOG.debug("tharindu-green-cores@ccompute_filter: host ip %(ip)s", {'ip': host_state.host_ip})
++
++        host_ip = host_state.host_ip
++        core_usage = list(filter(lambda x: x['host-ip'] == str(host_ip), CORE_USAGE['core_usage']))
++        LOG.debug("tharindu-green-cores@ccompute_filter: host_ip %(host_ip)s", {'host_ip': host_ip})
++        LOG.debug("tharindu-green-cores@ccompute_filter: core_usage %(core_usage)s", {'core_usage': core_usage})
++        core_usage = core_usage[0]
++
++        rcpus_avl = core_usage['reg-cores-avl']
++        rcpus_usg = core_usage['reg-cores-usg']
++        rcpus_free = rcpus_avl - rcpus_usg
++
++        hints = spec_obj.scheduler_hints
++        type = hints['type'][0]
++        LOG.debug("tharindu-green-cores@ccompute_filter: type %(type)s", {'type': type})
++        LOG.debug("tharindu-green-cores@ccompute_filter: rcpus_free %(rcpus_free)s", {'rcpus_free': rcpus_free})
++        LOG.debug("tharindu-green-cores@ccompute_filter: spec_obj.vcpus %(spec_obj.vcpus)s", {'spec_obj.vcpus': spec_obj.vcpus})
++        if type == 'regular' and rcpus_free < spec_obj.vcpus:
++            return False
++
+         return True
+diff --git a/nova/scheduler/manager.py b/nova/scheduler/manager.py
+index 620519d403f..1ac1fdc1a30 100644
+--- a/nova/scheduler/manager.py
++++ b/nova/scheduler/manager.py
+@@ -23,6 +23,7 @@
+ import copy
+ import random
+ 
++import requests
+ from keystoneauth1 import exceptions as ks_exc
+ from oslo_log import log as logging
+ import oslo_messaging as messaging
+@@ -52,6 +53,8 @@
+ 
+ HOST_MAPPING_EXISTS_WARNING = False
+ 
++CORE_USAGE = {}
++
+ 
+ class SchedulerManager(manager.Manager):
+     """Chooses a host to run instances on.
+@@ -702,6 +705,10 @@ def _get_sorted_hosts(self, spec_obj, host_states, index):
+         scheduling constraints for the request spec object and have been sorted
+         according to the weighers.
+         """
++        core_usages = requests.get(url='http://100.64.42.11:4000/gc/core-usage').json()
++        global CORE_USAGE
++        CORE_USAGE['core_usage'] = core_usages
++        LOG.debug("tharindu-green-cores@manager-after: CORE_USAGE %(CORE_USAGE)s", {'CORE_USAGE': CORE_USAGE})
+         filtered_hosts = self.host_manager.get_filtered_hosts(host_states,
+             spec_obj, index)
+ 
+diff --git a/nova/scheduler/weights/cpu.py b/nova/scheduler/weights/cpu.py
+index 904a788b460..b566c0f80ca 100644
+--- a/nova/scheduler/weights/cpu.py
++++ b/nova/scheduler/weights/cpu.py
+@@ -21,14 +21,66 @@
+ or aggregate metadata) to a negative number and the weighing has the opposite
+ effect of the default.
+ """
++import math
+ 
+ import nova.conf
+ from nova.scheduler import utils
+ from nova.scheduler import weights
++from nova.weights import LOG
++from ..manager import CORE_USAGE
+ 
+ CONF = nova.conf.CONF
+ 
+ 
++def get_prefer_non_empty_machines_score(used_gc, free_gc, used_rc, free_rc):
++    if used_gc + used_rc > 0:
++        return 1
++    else:
++        return 0
++
++
++def get_prefer_most_unused_green_cores_score(used_gc, free_gc, used_rc, free_rc):
++    if free_gc + used_gc == 0:
++        return 0
++    else:
++        return free_gc / (free_gc + used_gc)
++
++
++def get_prefer_guranteed_renewable_draw_score(used_gc, free_gc, used_rc, free_rc, type, vm_vcpus):
++    if type == 'regular':
++        return 0
++
++    overflow = vm_vcpus - free_rc
++    if 0 < overflow <= free_gc:
++        return 1
++    else:
++        return 0
++
++
++def get_worst_fit_on_green_cores_score(used_gc, free_gc, used_rc, free_rc, type, vm_vcpus):
++    if free_gc + used_gc == 0:
++        return 0
++    overflow = vm_vcpus - free_rc
++    if 0 < overflow <= free_gc:
++        return free_gc / (free_gc + used_gc)
++    else:
++        return 0
++
++
++def get_best_fit_on_green_cores_score(used_vcpu, free_vcpu):
++    return 1 - (free_vcpu / (used_vcpu + free_vcpu))
++
++
++def get_cpu_attrs(host_state):
++    vcpus_used = host_state.vcpus_used
++    vcpus_free = (host_state.vcpus_total * 1.0 - host_state.vcpus_used)
++    rcpus_used = host_state.rcpus_used
++    rcpus_free = (host_state.rcpus_total * 1.0 - host_state.rcpus_used)
++    gcpus_used = host_state.gcpus_used
++    gcpus_free = (host_state.gcpus_total * 1.0 - host_state.gcpus_used)
++    return gcpus_free, gcpus_used, rcpus_free, rcpus_used, vcpus_free, vcpus_used
++
++
+ class CPUWeigher(weights.BaseHostWeigher):
+     minval = 0
+ 
+@@ -40,7 +92,37 @@ def weight_multiplier(self, host_state):
+ 
+     def _weigh_object(self, host_state, weight_properties):
+         """Higher weights win.  We want spreading to be the default."""
+-        vcpus_free = (
+-            host_state.vcpus_total * host_state.cpu_allocation_ratio -
+-            host_state.vcpus_used)
+-        return vcpus_free
++        LOG.debug("tharindu-green-cores: CORE_USAGE['core_usage'] %(weight_properties)s", {'weight_properties': CORE_USAGE['core_usage']})
++        LOG.debug("tharindu-green-cores@weighter: host ip %(ip)s", {'ip': host_state.host_ip})
++        LOG.debug("tharindu-green-cores@weighter: weight_properties %(weight_properties)s", {'weight_properties': weight_properties})
++        # vcpus_free = (
++        #     host_state.vcpus_total * host_state.cpu_allocation_ratio -
++        #     host_state.vcpus_used)
++        # return vcpus_free
++
++        host_ip = host_state.host_ip
++        core_usage = list(filter(lambda x: x['host-ip'] == str(host_ip), CORE_USAGE['core_usage']))
++        LOG.debug("tharindu-green-cores@cpu: host_ip %(host_ip)s", {'host_ip': host_ip})
++        LOG.debug("tharindu-green-cores@cpu: core_usage %(core_usage)s", {'core_usage': core_usage})
++        core_usage = core_usage[0]
++
++        rcpus_avl = core_usage['reg-cores-avl']
++        gcpus_avl = core_usage['green-cores-avl']
++        rcpus_used = core_usage['reg-cores-usg']
++        gcpus_used = core_usage['green-cores-usg']
++        gcpus_free = gcpus_avl - gcpus_used
++        rcpus_free = rcpus_avl - rcpus_used
++        vcpus_used = rcpus_used + gcpus_used
++        vcpus_free = rcpus_free + gcpus_free
++
++        hints = weight_properties.scheduler_hints
++        type = hints['type'][0]
++
++        w1 = math.pow(3, 4) * get_prefer_non_empty_machines_score(gcpus_used, gcpus_free, rcpus_used, rcpus_free)
++        w2 = math.pow(3, 3) * get_prefer_most_unused_green_cores_score(gcpus_used, gcpus_free, rcpus_used, rcpus_free)
++        w3 = math.pow(3, 2) * get_prefer_guranteed_renewable_draw_score(gcpus_used, gcpus_free, rcpus_used, rcpus_free, type, weight_properties.vcpus)
++        w4 = math.pow(3, 1) * get_worst_fit_on_green_cores_score(gcpus_used, gcpus_free, rcpus_used, rcpus_free, type, weight_properties.vcpus)
++        w5 = math.pow(3, 0) * get_best_fit_on_green_cores_score(vcpus_used, vcpus_free)
++
++        final_weight = w1 + w2 + w3 + w4 + w5
++        return final_weight
+diff --git a/nova/thari-refresh-nova.sh b/nova/thari-refresh-nova.sh
+new file mode 100644
+index 00000000000..729adbbc969
+--- /dev/null
++++ b/nova/thari-refresh-nova.sh
+@@ -0,0 +1,21 @@
++REMOTE_HOST=$1
++
++NOVA_ROOT=/opt/stack/nova/nova
++
++echo 'uploading files...'
++
++#scp -r ./compute/resource_tracker.py stack@$REMOTE_HOST:$NOVA_ROOT/compute/
++#scp -r ./conf/compute.py stack@$REMOTE_HOST:$NOVA_ROOT/conf/
++#scp -r ./objects/compute_node.py stack@$REMOTE_HOST:$NOVA_ROOT/objects/
++#scp -r ./objects/numa.py stack@$REMOTE_HOST:$NOVA_ROOT/objects/
++#scp -r ./scheduler/host_manager.py stack@$REMOTE_HOST:$NOVA_ROOT/scheduler/host_manager.py
++#scp -r ./virt/hardware.py stack@$REMOTE_HOST:$NOVA_ROOT/virt/
++#scp -r ./virt/libvirt/driver.py stack@$REMOTE_HOST:$NOVA_ROOT/virt/libvirt/
++#scp -r ./virt/libvirt/host.py stack@$REMOTE_HOST:$NOVA_ROOT/virt/libvirt/
++
++scp -r ./scheduler/filters/compute_filter.py stack@$REMOTE_HOST:$NOVA_ROOT/scheduler/filters/
++scp -r ./scheduler/weights/cpu.py stack@$REMOTE_HOST:$NOVA_ROOT/scheduler/weights/
++scp -r ./scheduler/manager.py stack@$REMOTE_HOST:$NOVA_ROOT/scheduler/
++
++echo 'restarting devstack services...'
++ssh stack@$REMOTE_HOST 'sudo systemctl restart devstack@*'
+\ No newline at end of file
+diff --git a/nova/virt/hardware.py b/nova/virt/hardware.py
+index a8733796ef4..3c0aa9ed2d0 100644
+--- a/nova/virt/hardware.py
++++ b/nova/virt/hardware.py
+@@ -76,6 +76,36 @@ def get_cpu_dedicated_set():
+     return cpu_ids
+ 
+ 
++def get_cpu_stable_set():
++    """Parse ``[compute] cpu_stable_set`` config.
++
++    :returns: A set of host CPU IDs that can be used for prioritized PCPU allocations.
++    """
++    if not CONF.compute.cpu_stable_set:
++        return None
++
++    cpu_ids = parse_cpu_spec(CONF.compute.cpu_stable_set)
++    if not cpu_ids:
++        msg = _("No CPUs available after parsing '[compute] "
++                "cpu_stable_set' config, %r")
++        raise exception.Invalid(msg % CONF.compute.cpu_stable_set)
++    return cpu_ids
++
++def get_cpu_dynamic_set():
++    """Parse ``[compute] cpu_dynamic_set`` config.
++
++    :returns: A set of host CPU IDs that can be used for prioritized PCPU allocations.
++    """
++    if not CONF.compute.cpu_dynamic_set:
++        return None
++
++    cpu_ids = parse_cpu_spec(CONF.compute.cpu_dynamic_set)
++    if not cpu_ids:
++        msg = _("No CPUs available after parsing '[compute] "
++                "cpu_dynamic_set' config, %r")
++        raise exception.Invalid(msg % CONF.compute.cpu_dynamic_set)
++    return cpu_ids
++
+ def get_cpu_dedicated_set_nozero():
+     """Return cpu_dedicated_set without CPU0, if present"""
+     return (get_cpu_dedicated_set() or set()) - {0}
+@@ -720,8 +750,29 @@ def _get_pinning(threads_no, sibling_set, instance_cores):
+         #
+         # For an instance_cores=[2, 3], usable_cores=[[0], [4]]
+         # vcpus_pinning=[(2, 0), (3, 4)]
+-        vcpus_pinning = list(zip(sorted(instance_cores),
+-                                 itertools.chain(*usable_cores)))
++
++        # todo  Tharindu: Below is PoC implementation, and not efficient at all.
++        def get_priority_weight(val, high_p_list):
++            if val in high_p_list:
++                return 0
++            return 1
++
++        cpu_stable_set = get_cpu_stable_set()
++        usable_cores_list = list(itertools.chain(*usable_cores))
++        if len(cpu_stable_set) > 1:
++            usable_cores_list = sorted(usable_cores_list, key=lambda x: get_priority_weight(x, cpu_stable_set))
++            msg = ("Using priority core pinning: high priority cores: "
++                   "%(cpu_stable_set)s, priority ordered host cores: %(usable_cores_list)s")
++            msg_args = {
++                'cpu_stable_set': cpu_stable_set,
++                'usable_cores_list': usable_cores_list,
++            }
++            LOG.info(msg, msg_args)
++        vcpus_pinning = list(zip(
++            sorted(instance_cores),
++            usable_cores_list
++        ))
++
+         msg = ("Computed NUMA topology CPU pinning: usable pCPUs: "
+                "%(usable_cores)s, vCPUs mapping: %(vcpus_pinning)s")
+         msg_args = {
+@@ -729,6 +780,8 @@ def _get_pinning(threads_no, sibling_set, instance_cores):
+             'vcpus_pinning': vcpus_pinning,
+         }
+         LOG.info(msg, msg_args)
++        # In the prototype: Allocate vm with pinnning enabled + number of cores = 1
++        # Computed NUMA topology CPU pinning: usable pCPUs: [[0], [1], [2], [3]], vCPUs mapping: [(0, 0)]
+ 
+         return vcpus_pinning
+ 
+diff --git a/nova/virt/libvirt/host.py b/nova/virt/libvirt/host.py
+index b57751093e7..77163fd50a7 100644
+--- a/nova/virt/libvirt/host.py
++++ b/nova/virt/libvirt/host.py
+@@ -38,6 +38,7 @@
+ import socket
+ import threading
+ import typing as ty
++import requests as rq
+ 
+ from eventlet import greenio
+ from eventlet import greenthread
+@@ -60,7 +61,7 @@
+ from nova.pci import utils as pci_utils
+ from nova import rpc
+ from nova import utils
+-from nova.virt import event as virtevent
++from nova.virt import event as virtevent, hardware
+ from nova.virt.libvirt import config as vconfig
+ from nova.virt.libvirt import event as libvirtevent
+ from nova.virt.libvirt import guest as libvirt_guest
+@@ -760,7 +761,30 @@ def get_online_cpus(self):
+             if cpu_map[cpu]:
+                 online_cpus.add(cpu)
+ 
+-        return online_cpus
++        asleep_cpus = self._get_sleeping_cpus()
++        os_online_cpus = online_cpus - asleep_cpus
++        if len(asleep_cpus) > 0:
++            LOG.info('Asleep cpus detected. %(libvirsh_online_cpus)s:%(asleep_cpus)s for '
++                     'os_online %(os_online_cpus)s',
++                     {'libvirsh_online_cpus': online_cpus, 'asleep_cpus': asleep_cpus,
++                      'os_online_cpus': os_online_cpus})
++
++        return os_online_cpus
++
++    def _get_sleeping_cpus(self):
++        """Get the ids of the cores that are sleeping.
++
++        :returns: list of ids that are asleep.
++        """
++        # todo hardcoded:: supports only a single green core which has an id of 3.
++        endpoint = CONF.compute.cpu_sleep_info_endpoint
++        r = rq.get(url=endpoint)
++        data = r.json()
++        is_awake = data['is-awake']
++        sleeping_cpus = set()
++        if not is_awake:
++            sleeping_cpus = set(hardware.get_cpu_dynamic_set())
++        return sleeping_cpus
+ 
+     def get_cpu_model_names(self):
+         """Get the cpu models based on host CPU arch
