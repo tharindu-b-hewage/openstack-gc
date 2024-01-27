@@ -1,0 +1,1372 @@
+From 0e296ed1b97e5998add512a6294109d3613b0f8a Mon Sep 17 00:00:00 2001
+From: "Tharindu B. Hewage" <tharindu.b.hewage@gmail.com>
+Date: Sat, 6 Jan 2024 21:37:04 +1100
+Subject: [PATCH 01/10] PoC: priority core pinning
+
+Existing core pinning does not allow pinning order. This commit allows configuring two core priority levels; high and low. Below config makes first three cores high priority.
+
+```
+[compute]
+cpu_high_priority_set=[0,1,2]
+```
+During pinning, if available, high priority cores are attempted first. If not enough, low priority cores are used.
+---
+ nova/conf/compute.py  | 21 ++++++++++++++++++++-
+ nova/virt/hardware.py | 44 +++++++++++++++++++++++++++++++++++++++++--
+ 2 files changed, 62 insertions(+), 3 deletions(-)
+
+diff --git a/nova/conf/compute.py b/nova/conf/compute.py
+index de2743d8500..c825b73d94a 100644
+--- a/nova/conf/compute.py
++++ b/nova/conf/compute.py
+@@ -878,7 +878,26 @@
+   where ``VCPU`` resources should be allocated from.
+ * ``vcpu_pin_set``: A legacy option that this option partially replaces.
+ """),
+-    cfg.BoolOpt('live_migration_wait_for_vif_plug',
++   cfg.StrOpt('cpu_high_priority_set',
++        help="""
++Mask of host CPUs that can be used for prioritized ``PCPU`` resources.
++
++Possible values:
++
++* A comma-separated list of physical CPU numbers that instance VCPUs can be
++  allocated from. Each element should be either a single CPU number, a range of
++  CPU numbers, or a caret followed by a CPU number to be excluded from a
++  previous range. For example::
++
++    cpu_dedicated_set = "4-12,^8,15"
++
++Related options:
++
++* ``[compute] cpu_dedicated_set``: This is the parent option for defining the superset
++  where ``VCPU`` resources should be allocated from. ``[compute] cpu_high_priority_set`` option complements 
++  this option by enabling physical CPU prioritization.
++"""),
++   cfg.BoolOpt('live_migration_wait_for_vif_plug',
+         default=True,
+         help="""
+ Determine if the source compute host should wait for a ``network-vif-plugged``
+diff --git a/nova/virt/hardware.py b/nova/virt/hardware.py
+index a8733796ef4..018072247b1 100644
+--- a/nova/virt/hardware.py
++++ b/nova/virt/hardware.py
+@@ -76,6 +76,22 @@ def get_cpu_dedicated_set():
+     return cpu_ids
+ 
+ 
++def get_cpu_high_priority_set():
++    """Parse ``[compute] cpu_high_priority_set`` config.
++
++    :returns: A set of host CPU IDs that can be used for prioritized PCPU allocations.
++    """
++    if not CONF.compute.cpu_high_priority_set:
++        return None
++
++    cpu_ids = parse_cpu_spec(CONF.compute.cpu_high_priority_set)
++    if not cpu_ids:
++        msg = _("No CPUs available after parsing '[compute] "
++                "cpu_high_priority_set' config, %r")
++        raise exception.Invalid(msg % CONF.compute.cpu_high_priority_set)
++    return cpu_ids
++
++
+ def get_cpu_dedicated_set_nozero():
+     """Return cpu_dedicated_set without CPU0, if present"""
+     return (get_cpu_dedicated_set() or set()) - {0}
+@@ -720,8 +736,30 @@ def _get_pinning(threads_no, sibling_set, instance_cores):
+         #
+         # For an instance_cores=[2, 3], usable_cores=[[0], [4]]
+         # vcpus_pinning=[(2, 0), (3, 4)]
+-        vcpus_pinning = list(zip(sorted(instance_cores),
+-                                 itertools.chain(*usable_cores)))
++
++        # todo  Tharindu: Below is PoC implementation, and not efficient at all.
++        def get_priority_weight(val, high_p_list):
++            if val in high_p_list:
++                return 0
++            return 1
++
++        # todo: properly inject this through conf file: high_priority_cores = get_cpu_high_priority_set()
++        high_priority_cores = [0, 1, 2]
++        usable_cores_list = list(itertools.chain(*usable_cores))
++        if len(high_priority_cores) > 1:
++            usable_cores_list = sorted(usable_cores_list, key=lambda x: get_priority_weight(x, high_priority_cores))
++            msg = ("Using priority core pinning: high priority cores: "
++                   "%(high_priority_cores)s, priority ordered host cores: %(usable_cores_list)s")
++            msg_args = {
++                'high_priority_cores': high_priority_cores,
++                'usable_cores_list': usable_cores_list,
++            }
++            LOG.info(msg, msg_args)
++        vcpus_pinning = list(zip(
++            sorted(instance_cores),
++            usable_cores_list
++        ))
++
+         msg = ("Computed NUMA topology CPU pinning: usable pCPUs: "
+                "%(usable_cores)s, vCPUs mapping: %(vcpus_pinning)s")
+         msg_args = {
+@@ -729,6 +767,8 @@ def _get_pinning(threads_no, sibling_set, instance_cores):
+             'vcpus_pinning': vcpus_pinning,
+         }
+         LOG.info(msg, msg_args)
++        # In the prototype: Allocate vm with pinnning enabled + number of cores = 1
++        # Computed NUMA topology CPU pinning: usable pCPUs: [[0], [1], [2], [3]], vCPUs mapping: [(0, 0)]
+ 
+         return vcpus_pinning
+ 
+
+From 30f8635b72128b6cf3b63a05fa09e0e0a79a14c3 Mon Sep 17 00:00:00 2001
+From: "Tharindu B. Hewage" <tharindu.b.hewage@gmail.com>
+Date: Sun, 7 Jan 2024 20:01:52 +1100
+Subject: [PATCH 02/10] PoC: core sleep management
+
+libvirt wrapper checks core state and omit sleeping cores during getting online cpus.
+---
+ nova/virt/libvirt/host.py | 24 +++++++++++++++++++++++-
+ 1 file changed, 23 insertions(+), 1 deletion(-)
+
+diff --git a/nova/virt/libvirt/host.py b/nova/virt/libvirt/host.py
+index b57751093e7..2dfc1bfcbc0 100644
+--- a/nova/virt/libvirt/host.py
++++ b/nova/virt/libvirt/host.py
+@@ -38,6 +38,7 @@
+ import socket
+ import threading
+ import typing as ty
++import requests as rq
+ 
+ from eventlet import greenio
+ from eventlet import greenthread
+@@ -760,7 +761,28 @@ def get_online_cpus(self):
+             if cpu_map[cpu]:
+                 online_cpus.add(cpu)
+ 
+-        return online_cpus
++        asleep_cpus = self._get_sleeping_cpus()
++        os_online_cpus = online_cpus - asleep_cpus
++        if len(asleep_cpus) > 0:
++            LOG.info('Asleep cpus detected. %(libvirsh_online_cpus)s:%(asleep_cpus)s for '
++                     'os_online %(os_online_cpus)s',
++                     {'libvirsh_online_cpus': online_cpus, 'asleep_cpus': asleep_cpus,
++                      'os_online_cpus': os_online_cpus})
++
++        return os_online_cpus
++
++    def _get_sleeping_cpus(self):
++        """Get the ids of the cores that are sleeping.
++
++        :returns: list of ids that are asleep.
++        """
++        # todo hardcoded:: supports only a single green core which has an id of 3.
++        r = rq.get(url="http://100.70.12.103:4000/gc/is-asleep")
++        data = r.json()
++        is_awake = data['is-awake']
++
++        sleeping_cpus = set() if is_awake else {3}
++        return sleeping_cpus
+ 
+     def get_cpu_model_names(self):
+         """Get the cpu models based on host CPU arch
+
+From 0c0041c9fa7df9fbb59ea1325bcf409b5bc6d54f Mon Sep 17 00:00:00 2001
+From: "Tharindu B. Hewage" <tharindu.b.hewage@gmail.com>
+Date: Fri, 12 Jan 2024 00:11:52 +1100
+Subject: [PATCH 03/10] PoC: Make generic
+
+refactored with configurable core selection.
+---
+ nova/conf/compute.py      | 34 ++++++++++++++++++++++++++++++++--
+ nova/virt/hardware.py     | 37 +++++++++++++++++++++++++------------
+ nova/virt/libvirt/host.py | 10 ++++++----
+ 3 files changed, 63 insertions(+), 18 deletions(-)
+
+diff --git a/nova/conf/compute.py b/nova/conf/compute.py
+index c825b73d94a..9cf7b3499c6 100644
+--- a/nova/conf/compute.py
++++ b/nova/conf/compute.py
+@@ -878,7 +878,26 @@
+   where ``VCPU`` resources should be allocated from.
+ * ``vcpu_pin_set``: A legacy option that this option partially replaces.
+ """),
+-   cfg.StrOpt('cpu_high_priority_set',
++cfg.StrOpt('cpu_dynamic_set',
++        help="""
++Mask of host CPUs that can undergone dynamic performance changes, such as being strictly low powered.
++
++Possible values:
++
++* A comma-separated list of physical CPU numbers that instance VCPUs can be
++  allocated from. Each element should be either a single CPU number, a range of
++  CPU numbers, or a caret followed by a CPU number to be excluded from a
++  previous range. For example::
++
++    cpu_dedicated_set = "4-12,^8,15"
++
++Related options:
++
++* ``[compute] cpu_stable_set``: This is the parent option for defining the superset
++  where ``VCPU`` resources should be allocated from. ``[compute] cpu_dynamic_set`` option complements 
++  this option by enabling physical CPU prioritization.
++"""),
++   cfg.StrOpt('cpu_stable_set',
+         help="""
+ Mask of host CPUs that can be used for prioritized ``PCPU`` resources.
+ 
+@@ -894,8 +913,19 @@
+ Related options:
+ 
+ * ``[compute] cpu_dedicated_set``: This is the parent option for defining the superset
+-  where ``VCPU`` resources should be allocated from. ``[compute] cpu_high_priority_set`` option complements 
++  where ``VCPU`` resources should be allocated from. ``[compute] cpu_stable_set`` option complements 
+   this option by enabling physical CPU prioritization.
++"""),
++   cfg.StrOpt('cpu_sleep_info_endpoint',
++        help="""
++An endpoint which provides information cpu ids that are at the sleep mode. Such cpus are then considered offline in 
++openstack.
++
++Possible values:
++
++* A url to which this node can make a HTTP GET request without authentication (a security established resource). For example::
++
++    cpu_sleep_info_endpoint = "http://localhost:3000/gc-controller/is-asleep"
+ """),
+    cfg.BoolOpt('live_migration_wait_for_vif_plug',
+         default=True,
+diff --git a/nova/virt/hardware.py b/nova/virt/hardware.py
+index 018072247b1..3c0aa9ed2d0 100644
+--- a/nova/virt/hardware.py
++++ b/nova/virt/hardware.py
+@@ -76,21 +76,35 @@ def get_cpu_dedicated_set():
+     return cpu_ids
+ 
+ 
+-def get_cpu_high_priority_set():
+-    """Parse ``[compute] cpu_high_priority_set`` config.
++def get_cpu_stable_set():
++    """Parse ``[compute] cpu_stable_set`` config.
+ 
+     :returns: A set of host CPU IDs that can be used for prioritized PCPU allocations.
+     """
+-    if not CONF.compute.cpu_high_priority_set:
++    if not CONF.compute.cpu_stable_set:
+         return None
+ 
+-    cpu_ids = parse_cpu_spec(CONF.compute.cpu_high_priority_set)
++    cpu_ids = parse_cpu_spec(CONF.compute.cpu_stable_set)
+     if not cpu_ids:
+         msg = _("No CPUs available after parsing '[compute] "
+-                "cpu_high_priority_set' config, %r")
+-        raise exception.Invalid(msg % CONF.compute.cpu_high_priority_set)
++                "cpu_stable_set' config, %r")
++        raise exception.Invalid(msg % CONF.compute.cpu_stable_set)
+     return cpu_ids
+ 
++def get_cpu_dynamic_set():
++    """Parse ``[compute] cpu_dynamic_set`` config.
++
++    :returns: A set of host CPU IDs that can be used for prioritized PCPU allocations.
++    """
++    if not CONF.compute.cpu_dynamic_set:
++        return None
++
++    cpu_ids = parse_cpu_spec(CONF.compute.cpu_dynamic_set)
++    if not cpu_ids:
++        msg = _("No CPUs available after parsing '[compute] "
++                "cpu_dynamic_set' config, %r")
++        raise exception.Invalid(msg % CONF.compute.cpu_dynamic_set)
++    return cpu_ids
+ 
+ def get_cpu_dedicated_set_nozero():
+     """Return cpu_dedicated_set without CPU0, if present"""
+@@ -743,15 +757,14 @@ def get_priority_weight(val, high_p_list):
+                 return 0
+             return 1
+ 
+-        # todo: properly inject this through conf file: high_priority_cores = get_cpu_high_priority_set()
+-        high_priority_cores = [0, 1, 2]
++        cpu_stable_set = get_cpu_stable_set()
+         usable_cores_list = list(itertools.chain(*usable_cores))
+-        if len(high_priority_cores) > 1:
+-            usable_cores_list = sorted(usable_cores_list, key=lambda x: get_priority_weight(x, high_priority_cores))
++        if len(cpu_stable_set) > 1:
++            usable_cores_list = sorted(usable_cores_list, key=lambda x: get_priority_weight(x, cpu_stable_set))
+             msg = ("Using priority core pinning: high priority cores: "
+-                   "%(high_priority_cores)s, priority ordered host cores: %(usable_cores_list)s")
++                   "%(cpu_stable_set)s, priority ordered host cores: %(usable_cores_list)s")
+             msg_args = {
+-                'high_priority_cores': high_priority_cores,
++                'cpu_stable_set': cpu_stable_set,
+                 'usable_cores_list': usable_cores_list,
+             }
+             LOG.info(msg, msg_args)
+diff --git a/nova/virt/libvirt/host.py b/nova/virt/libvirt/host.py
+index 2dfc1bfcbc0..77163fd50a7 100644
+--- a/nova/virt/libvirt/host.py
++++ b/nova/virt/libvirt/host.py
+@@ -61,7 +61,7 @@
+ from nova.pci import utils as pci_utils
+ from nova import rpc
+ from nova import utils
+-from nova.virt import event as virtevent
++from nova.virt import event as virtevent, hardware
+ from nova.virt.libvirt import config as vconfig
+ from nova.virt.libvirt import event as libvirtevent
+ from nova.virt.libvirt import guest as libvirt_guest
+@@ -777,11 +777,13 @@ def _get_sleeping_cpus(self):
+         :returns: list of ids that are asleep.
+         """
+         # todo hardcoded:: supports only a single green core which has an id of 3.
+-        r = rq.get(url="http://100.70.12.103:4000/gc/is-asleep")
++        endpoint = CONF.compute.cpu_sleep_info_endpoint
++        r = rq.get(url=endpoint)
+         data = r.json()
+         is_awake = data['is-awake']
+-
+-        sleeping_cpus = set() if is_awake else {3}
++        sleeping_cpus = set()
++        if not is_awake:
++            sleeping_cpus = set(hardware.get_cpu_dynamic_set())
+         return sleeping_cpus
+ 
+     def get_cpu_model_names(self):
+
+From 9b1ee456b5a90744a19306f1bff8e057dcf00440 Mon Sep 17 00:00:00 2001
+From: "Tharindu B. Hewage" <tharindu.b.hewage@gmail.com>
+Date: Mon, 15 Jan 2024 16:37:41 +1100
+Subject: [PATCH 04/10] PoC: Fix deletion of VMs when pinned core is sleeping
+
+core sleep means its no longer a part of available cpu, thus fails a check. But its valid for dynamic core offline situation without proper vm eviction. For now we disable the check.
+---
+ nova/objects/numa.py | 8 ++++++++
+ 1 file changed, 8 insertions(+)
+
+diff --git a/nova/objects/numa.py b/nova/objects/numa.py
+index 36f51201b05..019ffeb28c6 100644
+--- a/nova/objects/numa.py
++++ b/nova/objects/numa.py
+@@ -98,6 +98,14 @@ def pin_cpus(self, cpus):
+         self.pinned_cpus |= cpus
+ 
+     def unpin_cpus(self, cpus):
++        #todo if the core is set offline, below check can fail, eventhough there are cpus that are not a part of available cpus right now.
++        #todo for now, we will disable this check. At least we should check if the cpu is a green core&in-sleep-mode by calling emulation service.
++        #todo this is also a valid bug, in the case of cpu offline. its worth exploring and fixing.
++        if (cpus - self.pcpuset) and ((self.pinned_cpus & cpus) != cpus):
++            # As a quick patch for our VERY SPECIFIC deployment and use cases, we assume this is a core that went to sleep.
++            self.pinned_cpus -= cpus
++            return
++
+         if cpus - self.pcpuset:
+             raise exception.CPUUnpinningUnknown(requested=list(cpus),
+                                                 available=list(self.pcpuset))
+
+From b9e843c99ad9ac8ca7a6ee9dadbf42c7baa5e14e Mon Sep 17 00:00:00 2001
+From: "Tharindu B. Hewage" <tharindu.b.hewage@gmail.com>
+Date: Mon, 22 Jan 2024 20:29:57 +1100
+Subject: [PATCH 05/10] PoC: green-fit impl
+
+preference rules
+---
+ nova/scheduler/weights/cpu.py | 70 +++++++++++++++++++++++++++++++++--
+ 1 file changed, 66 insertions(+), 4 deletions(-)
+
+diff --git a/nova/scheduler/weights/cpu.py b/nova/scheduler/weights/cpu.py
+index 904a788b460..f390ac65754 100644
+--- a/nova/scheduler/weights/cpu.py
++++ b/nova/scheduler/weights/cpu.py
+@@ -21,6 +21,7 @@
+ or aggregate metadata) to a negative number and the weighing has the opposite
+ effect of the default.
+ """
++import math
+ 
+ import nova.conf
+ from nova.scheduler import utils
+@@ -29,6 +30,56 @@
+ CONF = nova.conf.CONF
+ 
+ 
++def get_prefer_non_empty_machines_score(used_gc, free_gc, used_rc, free_rc):
++    if used_gc + used_rc > 0:
++        return 1
++    else:
++        return 0
++
++
++def get_prefer_most_unused_green_cores_score(used_gc, free_gc, used_rc, free_rc):
++    if free_gc + used_gc == 0:
++        return 0
++    else:
++        return free_gc / (free_gc + used_gc)
++
++
++def get_prefer_guranteed_renewable_draw_score(used_gc, free_gc, used_rc, free_rc, vm_rq_spec_obj):
++    if not vm_rq_spec_obj.name.contains('evictable'):
++        return 0
++    vm_vcpu = vm_rq_spec_obj.vcpu
++    overflow = vm_vcpu - free_rc
++    if 0 < overflow <= free_gc:
++        return 1
++    else:
++        return 0
++
++
++def get_worst_fit_on_green_cores_score(used_gc, free_gc, used_rc, free_rc, vm_rq_spec_obj):
++    if free_gc + used_gc == 0:
++        return 0
++    vm_vcpu = vm_rq_spec_obj.vcpu
++    overflow = vm_vcpu - free_rc
++    if 0 < overflow <= free_gc:
++        return free_gc / (free_gc + used_gc)
++    else:
++        return 0
++
++
++def get_best_fit_on_green_cores_score(used_vcpu, free_vcpu, vm_rq_spec_obj):
++    return 1 - (free_vcpu / (used_vcpu + free_vcpu))
++
++
++def get_cpu_attrs(host_state):
++    vcpus_used = host_state.vcpus_used
++    vcpus_free = (host_state.vcpus_total * 1.0 - host_state.vcpus_used)
++    rcpus_used = host_state.rcpus_used
++    rcpus_free = (host_state.rcpus_total * 1.0 - host_state.rcpus_used)
++    gcpus_used = host_state.gcpus_used
++    gcpus_free = (host_state.gcpus_total * 1.0 - host_state.gcpus_used)
++    return gcpus_free, gcpus_used, rcpus_free, rcpus_used, vcpus_free, vcpus_used
++
++
+ class CPUWeigher(weights.BaseHostWeigher):
+     minval = 0
+ 
+@@ -40,7 +91,18 @@ def weight_multiplier(self, host_state):
+ 
+     def _weigh_object(self, host_state, weight_properties):
+         """Higher weights win.  We want spreading to be the default."""
+-        vcpus_free = (
+-            host_state.vcpus_total * host_state.cpu_allocation_ratio -
+-            host_state.vcpus_used)
+-        return vcpus_free
++        # vcpus_free = (
++        #     host_state.vcpus_total * host_state.cpu_allocation_ratio -
++        #     host_state.vcpus_used)
++
++        vm_rq_spec_obj = weight_properties
++
++        gcpus_free, gcpus_used, rcpus_free, rcpus_used, vcpus_free, vcpus_used = get_cpu_attrs(host_state)
++
++        w1 = math.pow(3, 4) * get_prefer_non_empty_machines_score(gcpus_used, gcpus_free, rcpus_used, rcpus_free)
++        w2 = math.pow(3, 3) * get_prefer_most_unused_green_cores_score(gcpus_used, gcpus_free, rcpus_used, rcpus_free)
++        w3 = math.pow(3, 2) * get_prefer_guranteed_renewable_draw_score(gcpus_used, gcpus_free, rcpus_used, rcpus_free, vm_rq_spec_obj)
++        w4 = math.pow(3, 1) * get_worst_fit_on_green_cores_score(gcpus_used, gcpus_free, rcpus_used, rcpus_free, vm_rq_spec_obj)
++        w5 = math.pow(3, 0) * get_best_fit_on_green_cores_score(vcpus_used, vcpus_free, vm_rq_spec_obj)
++
++        return w1 + w2 + w3 + w4 + w5
+
+From aedbee484beec482f5c899d52b41fe790ab36695 Mon Sep 17 00:00:00 2001
+From: "Tharindu B. Hewage" <tharindu.b.hewage@gmail.com>
+Date: Mon, 22 Jan 2024 20:30:04 +1100
+Subject: [PATCH 06/10] PoC: green-fit impl
+
+filter rules
+---
+ nova/scheduler/filters/compute_filter.py | 15 +++++++++++++++
+ 1 file changed, 15 insertions(+)
+
+diff --git a/nova/scheduler/filters/compute_filter.py b/nova/scheduler/filters/compute_filter.py
+index 21c7fd4d3d8..b8974e83301 100644
+--- a/nova/scheduler/filters/compute_filter.py
++++ b/nova/scheduler/filters/compute_filter.py
+@@ -34,6 +34,7 @@ def __init__(self):
+ 
+     def host_passes(self, host_state, spec_obj):
+         """Returns True for only active compute nodes."""
++
+         service = host_state.service
+         if service['disabled']:
+             LOG.debug("%(host_state)s is disabled, reason: %(reason)s",
+@@ -45,4 +46,18 @@ def host_passes(self, host_state, spec_obj):
+                 LOG.warning("%(host_state)s has not been heard from in a "
+                             "while", {'host_state': host_state})
+                 return False
++
++        def get_cpu_attrs(host_state):
++            vcpus_used = host_state.vcpus_used
++            vcpus_free = (host_state.vcpus_total * 1.0 - host_state.vcpus_used)
++            rcpus_used = host_state.rcpus_used
++            rcpus_free = (host_state.rcpus_total * 1.0 - host_state.rcpus_used)
++            gcpus_used = host_state.gcpus_used
++            gcpus_free = (host_state.gcpus_total * 1.0 - host_state.gcpus_used)
++            return gcpus_free, gcpus_used, rcpus_free, rcpus_used, vcpus_free, vcpus_used
++
++        gcpus_free, gcpus_used, rcpus_free, rcpus_used, vcpus_free, vcpus_used = get_cpu_attrs(host_state)
++        if spec_obj.name.contains('regular') and rcpus_free < spec_obj.vcpus:
++            return False
++
+         return True
+
+From 03c3a13e0998957d63e66cd31d73776367c5389c Mon Sep 17 00:00:00 2001
+From: "Tharindu B. Hewage" <tharindu.b.hewage@gmail.com>
+Date: Mon, 22 Jan 2024 23:13:34 +1100
+Subject: [PATCH 07/10] PoC: green-fit impl
+
+resource tracker reports rcores and gcores
+---
+ nova/compute/resource_tracker.py | 13 +++++++++--
+ nova/objects/compute_node.py     |  4 ++--
+ nova/scheduler/host_manager.py   | 10 ++++++++
+ nova/scheduler/manager.py        |  6 +++++
+ nova/thari-refresh-nova.sh       | 19 ++++++++++++++++
+ nova/virt/libvirt/driver.py      | 39 ++++++++++++++++++++++++++++++--
+ nova/weights.py                  |  1 +
+ 7 files changed, 86 insertions(+), 6 deletions(-)
+ create mode 100644 nova/thari-refresh-nova.sh
+
+diff --git a/nova/compute/resource_tracker.py b/nova/compute/resource_tracker.py
+index bcd3a671ae8..14e907ba8c5 100644
+--- a/nova/compute/resource_tracker.py
++++ b/nova/compute/resource_tracker.py
+@@ -1096,11 +1096,16 @@ def _report_hypervisor_resource_view(self, resources):
+         free_ram_mb = resources['memory_mb'] - resources['memory_mb_used']
+         free_disk_gb = resources['local_gb'] - resources['local_gb_used']
+         vcpus = resources['vcpus']
++        rcpus = resources['rcpus']
++        gcpus = resources['gcpus']
+         if vcpus:
+             free_vcpus = vcpus - resources['vcpus_used']
+         else:
+             free_vcpus = 'unknown'
+ 
++        free_rcpus = rcpus - resources['rcpus_used']
++        free_gcpus = gcpus - resources['gcpus_used']
++
+         pci_devices = resources.get('pci_passthrough_devices')
+ 
+         LOG.debug("Hypervisor/Node resource view: "
+@@ -1108,11 +1113,15 @@ def _report_hypervisor_resource_view(self, resources):
+                   "free_ram=%(free_ram)sMB "
+                   "free_disk=%(free_disk)sGB "
+                   "free_vcpus=%(free_vcpus)s "
++                  "free_rcpus=%(free_rcpus)s "
++                  "free_gcpus=%(free_gcpus)s "
+                   "pci_devices=%(pci_devices)s",
+                   {'node': nodename,
+                    'free_ram': free_ram_mb,
+                    'free_disk': free_disk_gb,
+                    'free_vcpus': free_vcpus,
++                   'free_rcpus': free_rcpus,
++                   'free_gcpus': free_gcpus,
+                    'pci_devices': pci_devices})
+ 
+     def _report_final_resource_view(self, nodename):
+@@ -1825,8 +1834,8 @@ def delete_allocation_for_shelve_offloaded_instance(self, context,
+             context, instance.uuid, force=True)
+ 
+     def _verify_resources(self, resources):
+-        resource_keys = ["vcpus", "memory_mb", "local_gb", "cpu_info",
+-                         "vcpus_used", "memory_mb_used", "local_gb_used",
++        resource_keys = ["vcpus", "rcpus", "gcpus", "memory_mb", "local_gb", "cpu_info",
++                         "vcpus_used", "rcpus_used", "gcpus_used", "memory_mb_used", "local_gb_used",
+                          "numa_topology"]
+ 
+         missing_keys = [k for k in resource_keys if k not in resources]
+diff --git a/nova/objects/compute_node.py b/nova/objects/compute_node.py
+index dfc1b2ae284..a73d622041c 100644
+--- a/nova/objects/compute_node.py
++++ b/nova/objects/compute_node.py
+@@ -384,8 +384,8 @@ def update_from_virt_driver(self, resources):
+         # can be copied into the compute node. The names and representation
+         # do not exactly match.
+         # TODO(pmurray): the resources dict should be formalized.
+-        keys = ["vcpus", "memory_mb", "local_gb", "cpu_info",
+-                "vcpus_used", "memory_mb_used", "local_gb_used",
++        keys = ["vcpus","gcpus","rcpus", "memory_mb", "local_gb", "cpu_info",
++                "vcpus_used","gcpus_used","rcpus_used", "memory_mb_used", "local_gb_used",
+                 "numa_topology", "hypervisor_type",
+                 "hypervisor_version", "hypervisor_hostname",
+                 "disk_available_least", "host_ip", "uuid"]
+diff --git a/nova/scheduler/host_manager.py b/nova/scheduler/host_manager.py
+index 8cb775a9231..732220c874e 100644
+--- a/nova/scheduler/host_manager.py
++++ b/nova/scheduler/host_manager.py
+@@ -118,6 +118,12 @@ def __init__(self, host, node, cell_uuid):
+         self.pci_stats = None
+         self.numa_topology = None
+ 
++        # Green core info.
++        self.gcpus_total = 0
++        self.gcpus_used = 0
++        self.rcpus_total = 0
++        self.rcpus_used = 0
++
+         # Additional host information from the compute node stats:
+         self.num_instances = 0
+         self.num_io_ops = 0
+@@ -220,6 +226,10 @@ def _update_from_compute_node(self, compute):
+         self.free_disk_mb = free_disk_mb
+         self.vcpus_total = compute.vcpus
+         self.vcpus_used = compute.vcpus_used
++        self.rcpus_total = compute.rcpus
++        self.rcpus_used = compute.rcpus_used
++        self.gcpus_total = compute.gcpus
++        self.gcpus_used = compute.gcpus_used
+         self.updated = compute.updated_at
+         # the ComputeNode.numa_topology field is a StringField so deserialize
+         self.numa_topology = objects.NUMATopology.obj_from_db_obj(
+diff --git a/nova/scheduler/manager.py b/nova/scheduler/manager.py
+index 620519d403f..211d044ca8b 100644
+--- a/nova/scheduler/manager.py
++++ b/nova/scheduler/manager.py
+@@ -348,6 +348,12 @@ def hosts_with_alloc_reqs(hosts_gen):
+         hosts = self._get_all_host_states(
+             elevated, spec_obj, provider_summaries)
+ 
++        LOG.debug(
++            'host states are %(hosts)'
++            '',
++            {'hosts': hosts})
++
++
+         # alloc_reqs_by_rp_uuid is None during rebuild, so this mean we cannot
+         # run filters that are using allocation candidates during rebuild
+         if alloc_reqs_by_rp_uuid is not None:
+diff --git a/nova/thari-refresh-nova.sh b/nova/thari-refresh-nova.sh
+new file mode 100644
+index 00000000000..95f3c8ce8a4
+--- /dev/null
++++ b/nova/thari-refresh-nova.sh
+@@ -0,0 +1,19 @@
++REMOTE_HOST=$1
++
++NOVA_ROOT=/opt/stack/nova/nova
++
++echo 'uploading files...'
++
++scp -r ./compute/resource_tracker.py stack@$REMOTE_HOST:$NOVA_ROOT/compute/
++scp -r ./conf/compute.py stack@$REMOTE_HOST:$NOVA_ROOT/conf/
++scp -r ./objects/compute_node.py stack@$REMOTE_HOST:$NOVA_ROOT/objects/
++scp -r ./objects/numa.py stack@$REMOTE_HOST:$NOVA_ROOT/objects/
++scp -r ./scheduler/filters/compute_filter.py stack@$REMOTE_HOST:$NOVA_ROOT/scheduler/filters/
++scp -r ./scheduler/weights/cpu.py stack@$REMOTE_HOST:$NOVA_ROOT/scheduler/weights/
++scp -r ./scheduler/host_manager.py stack@$REMOTE_HOST:$NOVA_ROOT/scheduler/host_manager.py
++scp -r ./virt/hardware.py stack@$REMOTE_HOST:$NOVA_ROOT/virt/
++scp -r ./virt/libvirt/driver.py stack@$REMOTE_HOST:$NOVA_ROOT/virt/libvirt/
++scp -r ./virt/libvirt/host.py stack@$REMOTE_HOST:$NOVA_ROOT/virt/libvirt/
++
++echo 'restarting devstack services...'
++ssh stack@$REMOTE_HOST 'sudo systemctl restart devstack@*'
+\ No newline at end of file
+diff --git a/nova/virt/libvirt/driver.py b/nova/virt/libvirt/driver.py
+index 804aef22b4d..ebb1d838c70 100644
+--- a/nova/virt/libvirt/driver.py
++++ b/nova/virt/libvirt/driver.py
+@@ -7924,6 +7924,29 @@ def _get_vcpu_used(self):
+             greenthread.sleep(0)
+         return total
+ 
++
++    def _get_used_vcpu_lists(self, stable_set, dynamic_set):
++        """Get vcpu usage number of physical computer.
++
++        :returns: The total number of vcpu(s) that are currently being used.
++
++        """
++
++        used_stable = []
++        used_dynamic = []
++
++        for guest in self._host.list_guests():
++            vcpus = [x.cpu for x in list(guest.get_vcpus_info())]
++            for vcpu in vcpus:
++                if vcpu in stable_set:
++                    used_stable.append(vcpu)
++                elif vcpu in dynamic_set:
++                    used_dynamic.append(vcpu)
++            # NOTE(gtt116): give other tasks a chance.
++            greenthread.sleep(0)
++
++        return used_stable, used_dynamic
++
+     def _get_supported_vgpu_types(self):
+         if not CONF.devices.enabled_mdev_types:
+             return []
+@@ -9554,7 +9577,6 @@ def get_available_resource(self, nodename):
+         :param nodename: unused in this driver
+         :returns: dictionary containing resource info
+         """
+-
+         disk_info_dict = self._get_local_gb_info()
+         data = {}
+ 
+@@ -9564,7 +9586,20 @@ def get_available_resource(self, nodename):
+         # See: https://bugs.launchpad.net/nova/+bug/1215593
+         data["supported_instances"] = self._get_instance_capabilities()
+ 
+-        data["vcpus"] = len(self._get_vcpu_available())
++        online_vcpus = self._get_vcpu_available() # with dedicated pinning and alloc ratio of 1, this method provide online cpus (regulars + if gc awake)
++        hw_cpu_stable_set = hardware.get_cpu_stable_set()
++        hw_cpu_dynamic_set = hardware.get_cpu_dynamic_set()
++        used_stable, used_dynamic = self._get_used_vcpu_lists(hw_cpu_stable_set, hw_cpu_dynamic_set)
++        data["rcpus"] = len(hw_cpu_stable_set)
++        data["rcpus_used"] = len(used_stable)
++        data["gcpus"] = len(hw_cpu_dynamic_set) if len(online_vcpus) > len(hw_cpu_stable_set) else 0
++        data["gcpus_used"] = len(used_dynamic)
++        LOG.debug("added green core metrics "
++                  "%(rcpus_used)s (node: %(gcpus_used)s)",
++                 {'rcpus_used': data["rcpus_used"],
++                  'gcpus_used': data["gcpus_used"]})
++
++        data["vcpus"] = len(online_vcpus)
+         data["memory_mb"] = self._host.get_memory_mb_total()
+         data["local_gb"] = disk_info_dict['total']
+         data["vcpus_used"] = self._get_vcpu_used()
+diff --git a/nova/weights.py b/nova/weights.py
+index 75d51dc5f79..781f81d2362 100644
+--- a/nova/weights.py
++++ b/nova/weights.py
+@@ -98,6 +98,7 @@ def _weigh_object(self, obj, weight_properties):
+         """Weigh an specific object."""
+ 
+     def weigh_objects(self, weighed_obj_list, weight_properties):
++        LOG.debug("Weighted objects possibly hosts %(hosts)s", {'hosts': weighed_obj_list})
+         """Weigh multiple objects.
+ 
+         Override in a subclass if you need access to all objects in order
+
+From c1151224a520f107f9bb1bbe5d835ebac0f6cf01 Mon Sep 17 00:00:00 2001
+From: "Tharindu B. Hewage" <tharindu.b.hewage@gmail.com>
+Date: Tue, 23 Jan 2024 21:41:16 +1100
+Subject: [PATCH 08/10] Revert "PoC: green-fit impl"
+
+This reverts commit 03c3a13e0998957d63e66cd31d73776367c5389c.
+---
+ nova/compute/resource_tracker.py | 13 ++---------
+ nova/objects/compute_node.py     |  4 ++--
+ nova/scheduler/host_manager.py   | 10 --------
+ nova/scheduler/manager.py        |  6 -----
+ nova/thari-refresh-nova.sh       | 19 ----------------
+ nova/virt/libvirt/driver.py      | 39 ++------------------------------
+ nova/weights.py                  |  1 -
+ 7 files changed, 6 insertions(+), 86 deletions(-)
+ delete mode 100644 nova/thari-refresh-nova.sh
+
+diff --git a/nova/compute/resource_tracker.py b/nova/compute/resource_tracker.py
+index 14e907ba8c5..bcd3a671ae8 100644
+--- a/nova/compute/resource_tracker.py
++++ b/nova/compute/resource_tracker.py
+@@ -1096,16 +1096,11 @@ def _report_hypervisor_resource_view(self, resources):
+         free_ram_mb = resources['memory_mb'] - resources['memory_mb_used']
+         free_disk_gb = resources['local_gb'] - resources['local_gb_used']
+         vcpus = resources['vcpus']
+-        rcpus = resources['rcpus']
+-        gcpus = resources['gcpus']
+         if vcpus:
+             free_vcpus = vcpus - resources['vcpus_used']
+         else:
+             free_vcpus = 'unknown'
+ 
+-        free_rcpus = rcpus - resources['rcpus_used']
+-        free_gcpus = gcpus - resources['gcpus_used']
+-
+         pci_devices = resources.get('pci_passthrough_devices')
+ 
+         LOG.debug("Hypervisor/Node resource view: "
+@@ -1113,15 +1108,11 @@ def _report_hypervisor_resource_view(self, resources):
+                   "free_ram=%(free_ram)sMB "
+                   "free_disk=%(free_disk)sGB "
+                   "free_vcpus=%(free_vcpus)s "
+-                  "free_rcpus=%(free_rcpus)s "
+-                  "free_gcpus=%(free_gcpus)s "
+                   "pci_devices=%(pci_devices)s",
+                   {'node': nodename,
+                    'free_ram': free_ram_mb,
+                    'free_disk': free_disk_gb,
+                    'free_vcpus': free_vcpus,
+-                   'free_rcpus': free_rcpus,
+-                   'free_gcpus': free_gcpus,
+                    'pci_devices': pci_devices})
+ 
+     def _report_final_resource_view(self, nodename):
+@@ -1834,8 +1825,8 @@ def delete_allocation_for_shelve_offloaded_instance(self, context,
+             context, instance.uuid, force=True)
+ 
+     def _verify_resources(self, resources):
+-        resource_keys = ["vcpus", "rcpus", "gcpus", "memory_mb", "local_gb", "cpu_info",
+-                         "vcpus_used", "rcpus_used", "gcpus_used", "memory_mb_used", "local_gb_used",
++        resource_keys = ["vcpus", "memory_mb", "local_gb", "cpu_info",
++                         "vcpus_used", "memory_mb_used", "local_gb_used",
+                          "numa_topology"]
+ 
+         missing_keys = [k for k in resource_keys if k not in resources]
+diff --git a/nova/objects/compute_node.py b/nova/objects/compute_node.py
+index a73d622041c..dfc1b2ae284 100644
+--- a/nova/objects/compute_node.py
++++ b/nova/objects/compute_node.py
+@@ -384,8 +384,8 @@ def update_from_virt_driver(self, resources):
+         # can be copied into the compute node. The names and representation
+         # do not exactly match.
+         # TODO(pmurray): the resources dict should be formalized.
+-        keys = ["vcpus","gcpus","rcpus", "memory_mb", "local_gb", "cpu_info",
+-                "vcpus_used","gcpus_used","rcpus_used", "memory_mb_used", "local_gb_used",
++        keys = ["vcpus", "memory_mb", "local_gb", "cpu_info",
++                "vcpus_used", "memory_mb_used", "local_gb_used",
+                 "numa_topology", "hypervisor_type",
+                 "hypervisor_version", "hypervisor_hostname",
+                 "disk_available_least", "host_ip", "uuid"]
+diff --git a/nova/scheduler/host_manager.py b/nova/scheduler/host_manager.py
+index 732220c874e..8cb775a9231 100644
+--- a/nova/scheduler/host_manager.py
++++ b/nova/scheduler/host_manager.py
+@@ -118,12 +118,6 @@ def __init__(self, host, node, cell_uuid):
+         self.pci_stats = None
+         self.numa_topology = None
+ 
+-        # Green core info.
+-        self.gcpus_total = 0
+-        self.gcpus_used = 0
+-        self.rcpus_total = 0
+-        self.rcpus_used = 0
+-
+         # Additional host information from the compute node stats:
+         self.num_instances = 0
+         self.num_io_ops = 0
+@@ -226,10 +220,6 @@ def _update_from_compute_node(self, compute):
+         self.free_disk_mb = free_disk_mb
+         self.vcpus_total = compute.vcpus
+         self.vcpus_used = compute.vcpus_used
+-        self.rcpus_total = compute.rcpus
+-        self.rcpus_used = compute.rcpus_used
+-        self.gcpus_total = compute.gcpus
+-        self.gcpus_used = compute.gcpus_used
+         self.updated = compute.updated_at
+         # the ComputeNode.numa_topology field is a StringField so deserialize
+         self.numa_topology = objects.NUMATopology.obj_from_db_obj(
+diff --git a/nova/scheduler/manager.py b/nova/scheduler/manager.py
+index 211d044ca8b..620519d403f 100644
+--- a/nova/scheduler/manager.py
++++ b/nova/scheduler/manager.py
+@@ -348,12 +348,6 @@ def hosts_with_alloc_reqs(hosts_gen):
+         hosts = self._get_all_host_states(
+             elevated, spec_obj, provider_summaries)
+ 
+-        LOG.debug(
+-            'host states are %(hosts)'
+-            '',
+-            {'hosts': hosts})
+-
+-
+         # alloc_reqs_by_rp_uuid is None during rebuild, so this mean we cannot
+         # run filters that are using allocation candidates during rebuild
+         if alloc_reqs_by_rp_uuid is not None:
+diff --git a/nova/thari-refresh-nova.sh b/nova/thari-refresh-nova.sh
+deleted file mode 100644
+index 95f3c8ce8a4..00000000000
+--- a/nova/thari-refresh-nova.sh
++++ /dev/null
+@@ -1,19 +0,0 @@
+-REMOTE_HOST=$1
+-
+-NOVA_ROOT=/opt/stack/nova/nova
+-
+-echo 'uploading files...'
+-
+-scp -r ./compute/resource_tracker.py stack@$REMOTE_HOST:$NOVA_ROOT/compute/
+-scp -r ./conf/compute.py stack@$REMOTE_HOST:$NOVA_ROOT/conf/
+-scp -r ./objects/compute_node.py stack@$REMOTE_HOST:$NOVA_ROOT/objects/
+-scp -r ./objects/numa.py stack@$REMOTE_HOST:$NOVA_ROOT/objects/
+-scp -r ./scheduler/filters/compute_filter.py stack@$REMOTE_HOST:$NOVA_ROOT/scheduler/filters/
+-scp -r ./scheduler/weights/cpu.py stack@$REMOTE_HOST:$NOVA_ROOT/scheduler/weights/
+-scp -r ./scheduler/host_manager.py stack@$REMOTE_HOST:$NOVA_ROOT/scheduler/host_manager.py
+-scp -r ./virt/hardware.py stack@$REMOTE_HOST:$NOVA_ROOT/virt/
+-scp -r ./virt/libvirt/driver.py stack@$REMOTE_HOST:$NOVA_ROOT/virt/libvirt/
+-scp -r ./virt/libvirt/host.py stack@$REMOTE_HOST:$NOVA_ROOT/virt/libvirt/
+-
+-echo 'restarting devstack services...'
+-ssh stack@$REMOTE_HOST 'sudo systemctl restart devstack@*'
+\ No newline at end of file
+diff --git a/nova/virt/libvirt/driver.py b/nova/virt/libvirt/driver.py
+index ebb1d838c70..804aef22b4d 100644
+--- a/nova/virt/libvirt/driver.py
++++ b/nova/virt/libvirt/driver.py
+@@ -7924,29 +7924,6 @@ def _get_vcpu_used(self):
+             greenthread.sleep(0)
+         return total
+ 
+-
+-    def _get_used_vcpu_lists(self, stable_set, dynamic_set):
+-        """Get vcpu usage number of physical computer.
+-
+-        :returns: The total number of vcpu(s) that are currently being used.
+-
+-        """
+-
+-        used_stable = []
+-        used_dynamic = []
+-
+-        for guest in self._host.list_guests():
+-            vcpus = [x.cpu for x in list(guest.get_vcpus_info())]
+-            for vcpu in vcpus:
+-                if vcpu in stable_set:
+-                    used_stable.append(vcpu)
+-                elif vcpu in dynamic_set:
+-                    used_dynamic.append(vcpu)
+-            # NOTE(gtt116): give other tasks a chance.
+-            greenthread.sleep(0)
+-
+-        return used_stable, used_dynamic
+-
+     def _get_supported_vgpu_types(self):
+         if not CONF.devices.enabled_mdev_types:
+             return []
+@@ -9577,6 +9554,7 @@ def get_available_resource(self, nodename):
+         :param nodename: unused in this driver
+         :returns: dictionary containing resource info
+         """
++
+         disk_info_dict = self._get_local_gb_info()
+         data = {}
+ 
+@@ -9586,20 +9564,7 @@ def get_available_resource(self, nodename):
+         # See: https://bugs.launchpad.net/nova/+bug/1215593
+         data["supported_instances"] = self._get_instance_capabilities()
+ 
+-        online_vcpus = self._get_vcpu_available() # with dedicated pinning and alloc ratio of 1, this method provide online cpus (regulars + if gc awake)
+-        hw_cpu_stable_set = hardware.get_cpu_stable_set()
+-        hw_cpu_dynamic_set = hardware.get_cpu_dynamic_set()
+-        used_stable, used_dynamic = self._get_used_vcpu_lists(hw_cpu_stable_set, hw_cpu_dynamic_set)
+-        data["rcpus"] = len(hw_cpu_stable_set)
+-        data["rcpus_used"] = len(used_stable)
+-        data["gcpus"] = len(hw_cpu_dynamic_set) if len(online_vcpus) > len(hw_cpu_stable_set) else 0
+-        data["gcpus_used"] = len(used_dynamic)
+-        LOG.debug("added green core metrics "
+-                  "%(rcpus_used)s (node: %(gcpus_used)s)",
+-                 {'rcpus_used': data["rcpus_used"],
+-                  'gcpus_used': data["gcpus_used"]})
+-
+-        data["vcpus"] = len(online_vcpus)
++        data["vcpus"] = len(self._get_vcpu_available())
+         data["memory_mb"] = self._host.get_memory_mb_total()
+         data["local_gb"] = disk_info_dict['total']
+         data["vcpus_used"] = self._get_vcpu_used()
+diff --git a/nova/weights.py b/nova/weights.py
+index 781f81d2362..75d51dc5f79 100644
+--- a/nova/weights.py
++++ b/nova/weights.py
+@@ -98,7 +98,6 @@ def _weigh_object(self, obj, weight_properties):
+         """Weigh an specific object."""
+ 
+     def weigh_objects(self, weighed_obj_list, weight_properties):
+-        LOG.debug("Weighted objects possibly hosts %(hosts)s", {'hosts': weighed_obj_list})
+         """Weigh multiple objects.
+ 
+         Override in a subclass if you need access to all objects in order
+
+From a9af6cfee1c72560f19dd32e61f157c2dd949f34 Mon Sep 17 00:00:00 2001
+From: "Tharindu B. Hewage" <tharindu.b.hewage@gmail.com>
+Date: Wed, 24 Jan 2024 01:43:04 +1100
+Subject: [PATCH 09/10] PoC: green-fit impl
+
+green fit test and verify
+---
+ nova/scheduler/filters/compute_filter.py | 32 ++++++++++-----
+ nova/scheduler/manager.py                |  7 ++++
+ nova/scheduler/weights/cpu.py            | 52 ++++++++++++++++--------
+ nova/thari-refresh-nova.sh               | 21 ++++++++++
+ 4 files changed, 85 insertions(+), 27 deletions(-)
+ create mode 100644 nova/thari-refresh-nova.sh
+
+diff --git a/nova/scheduler/filters/compute_filter.py b/nova/scheduler/filters/compute_filter.py
+index b8974e83301..97134750d91 100644
+--- a/nova/scheduler/filters/compute_filter.py
++++ b/nova/scheduler/filters/compute_filter.py
+@@ -17,6 +17,7 @@
+ 
+ from nova.scheduler import filters
+ from nova import servicegroup
++from ..manager import CORE_USAGE
+ 
+ LOG = logging.getLogger(__name__)
+ 
+@@ -46,18 +47,27 @@ def host_passes(self, host_state, spec_obj):
+                 LOG.warning("%(host_state)s has not been heard from in a "
+                             "while", {'host_state': host_state})
+                 return False
++        LOG.debug("tharindu-green-cores@ccompute_filter: spec_obj %(spec_obj)s", {'spec_obj': spec_obj})
++        LOG.debug("tharindu-green-cores@ccompute_filter: CORE_USAGE %(CORE_USAGE)s", {'CORE_USAGE': CORE_USAGE})
++        LOG.debug("tharindu-green-cores: CORE_USAGE['core_usage'] %(spec_obj)s", {'spec_obj': CORE_USAGE['core_usage']})
++        LOG.debug("tharindu-green-cores@ccompute_filter: host ip %(ip)s", {'ip': host_state.host_ip})
+ 
+-        def get_cpu_attrs(host_state):
+-            vcpus_used = host_state.vcpus_used
+-            vcpus_free = (host_state.vcpus_total * 1.0 - host_state.vcpus_used)
+-            rcpus_used = host_state.rcpus_used
+-            rcpus_free = (host_state.rcpus_total * 1.0 - host_state.rcpus_used)
+-            gcpus_used = host_state.gcpus_used
+-            gcpus_free = (host_state.gcpus_total * 1.0 - host_state.gcpus_used)
+-            return gcpus_free, gcpus_used, rcpus_free, rcpus_used, vcpus_free, vcpus_used
+-
+-        gcpus_free, gcpus_used, rcpus_free, rcpus_used, vcpus_free, vcpus_used = get_cpu_attrs(host_state)
+-        if spec_obj.name.contains('regular') and rcpus_free < spec_obj.vcpus:
++        host_ip = host_state.host_ip
++        core_usage = list(filter(lambda x: x['host-ip'] == str(host_ip), CORE_USAGE['core_usage']))
++        LOG.debug("tharindu-green-cores@ccompute_filter: host_ip %(host_ip)s", {'host_ip': host_ip})
++        LOG.debug("tharindu-green-cores@ccompute_filter: core_usage %(core_usage)s", {'core_usage': core_usage})
++        core_usage = core_usage[0]
++
++        rcpus_avl = core_usage['reg-cores-avl']
++        rcpus_usg = core_usage['reg-cores-usg']
++        rcpus_free = rcpus_avl - rcpus_usg
++
++        hints = spec_obj.scheduler_hints
++        type = hints['type'][0]
++        LOG.debug("tharindu-green-cores@ccompute_filter: type %(type)s", {'type': type})
++        LOG.debug("tharindu-green-cores@ccompute_filter: rcpus_free %(rcpus_free)s", {'rcpus_free': rcpus_free})
++        LOG.debug("tharindu-green-cores@ccompute_filter: spec_obj.vcpus %(spec_obj.vcpus)s", {'spec_obj.vcpus': spec_obj.vcpus})
++        if type == 'regular' and rcpus_free < spec_obj.vcpus:
+             return False
+ 
+         return True
+diff --git a/nova/scheduler/manager.py b/nova/scheduler/manager.py
+index 620519d403f..1ac1fdc1a30 100644
+--- a/nova/scheduler/manager.py
++++ b/nova/scheduler/manager.py
+@@ -23,6 +23,7 @@
+ import copy
+ import random
+ 
++import requests
+ from keystoneauth1 import exceptions as ks_exc
+ from oslo_log import log as logging
+ import oslo_messaging as messaging
+@@ -52,6 +53,8 @@
+ 
+ HOST_MAPPING_EXISTS_WARNING = False
+ 
++CORE_USAGE = {}
++
+ 
+ class SchedulerManager(manager.Manager):
+     """Chooses a host to run instances on.
+@@ -702,6 +705,10 @@ def _get_sorted_hosts(self, spec_obj, host_states, index):
+         scheduling constraints for the request spec object and have been sorted
+         according to the weighers.
+         """
++        core_usages = requests.get(url='http://100.64.42.11:4000/gc/core-usage').json()
++        global CORE_USAGE
++        CORE_USAGE['core_usage'] = core_usages
++        LOG.debug("tharindu-green-cores@manager-after: CORE_USAGE %(CORE_USAGE)s", {'CORE_USAGE': CORE_USAGE})
+         filtered_hosts = self.host_manager.get_filtered_hosts(host_states,
+             spec_obj, index)
+ 
+diff --git a/nova/scheduler/weights/cpu.py b/nova/scheduler/weights/cpu.py
+index f390ac65754..b566c0f80ca 100644
+--- a/nova/scheduler/weights/cpu.py
++++ b/nova/scheduler/weights/cpu.py
+@@ -26,6 +26,8 @@
+ import nova.conf
+ from nova.scheduler import utils
+ from nova.scheduler import weights
++from nova.weights import LOG
++from ..manager import CORE_USAGE
+ 
+ CONF = nova.conf.CONF
+ 
+@@ -44,29 +46,28 @@ def get_prefer_most_unused_green_cores_score(used_gc, free_gc, used_rc, free_rc)
+         return free_gc / (free_gc + used_gc)
+ 
+ 
+-def get_prefer_guranteed_renewable_draw_score(used_gc, free_gc, used_rc, free_rc, vm_rq_spec_obj):
+-    if not vm_rq_spec_obj.name.contains('evictable'):
++def get_prefer_guranteed_renewable_draw_score(used_gc, free_gc, used_rc, free_rc, type, vm_vcpus):
++    if type == 'regular':
+         return 0
+-    vm_vcpu = vm_rq_spec_obj.vcpu
+-    overflow = vm_vcpu - free_rc
++
++    overflow = vm_vcpus - free_rc
+     if 0 < overflow <= free_gc:
+         return 1
+     else:
+         return 0
+ 
+ 
+-def get_worst_fit_on_green_cores_score(used_gc, free_gc, used_rc, free_rc, vm_rq_spec_obj):
++def get_worst_fit_on_green_cores_score(used_gc, free_gc, used_rc, free_rc, type, vm_vcpus):
+     if free_gc + used_gc == 0:
+         return 0
+-    vm_vcpu = vm_rq_spec_obj.vcpu
+-    overflow = vm_vcpu - free_rc
++    overflow = vm_vcpus - free_rc
+     if 0 < overflow <= free_gc:
+         return free_gc / (free_gc + used_gc)
+     else:
+         return 0
+ 
+ 
+-def get_best_fit_on_green_cores_score(used_vcpu, free_vcpu, vm_rq_spec_obj):
++def get_best_fit_on_green_cores_score(used_vcpu, free_vcpu):
+     return 1 - (free_vcpu / (used_vcpu + free_vcpu))
+ 
+ 
+@@ -91,18 +92,37 @@ def weight_multiplier(self, host_state):
+ 
+     def _weigh_object(self, host_state, weight_properties):
+         """Higher weights win.  We want spreading to be the default."""
++        LOG.debug("tharindu-green-cores: CORE_USAGE['core_usage'] %(weight_properties)s", {'weight_properties': CORE_USAGE['core_usage']})
++        LOG.debug("tharindu-green-cores@weighter: host ip %(ip)s", {'ip': host_state.host_ip})
++        LOG.debug("tharindu-green-cores@weighter: weight_properties %(weight_properties)s", {'weight_properties': weight_properties})
+         # vcpus_free = (
+         #     host_state.vcpus_total * host_state.cpu_allocation_ratio -
+         #     host_state.vcpus_used)
+-
+-        vm_rq_spec_obj = weight_properties
+-
+-        gcpus_free, gcpus_used, rcpus_free, rcpus_used, vcpus_free, vcpus_used = get_cpu_attrs(host_state)
++        # return vcpus_free
++
++        host_ip = host_state.host_ip
++        core_usage = list(filter(lambda x: x['host-ip'] == str(host_ip), CORE_USAGE['core_usage']))
++        LOG.debug("tharindu-green-cores@cpu: host_ip %(host_ip)s", {'host_ip': host_ip})
++        LOG.debug("tharindu-green-cores@cpu: core_usage %(core_usage)s", {'core_usage': core_usage})
++        core_usage = core_usage[0]
++
++        rcpus_avl = core_usage['reg-cores-avl']
++        gcpus_avl = core_usage['green-cores-avl']
++        rcpus_used = core_usage['reg-cores-usg']
++        gcpus_used = core_usage['green-cores-usg']
++        gcpus_free = gcpus_avl - gcpus_used
++        rcpus_free = rcpus_avl - rcpus_used
++        vcpus_used = rcpus_used + gcpus_used
++        vcpus_free = rcpus_free + gcpus_free
++
++        hints = weight_properties.scheduler_hints
++        type = hints['type'][0]
+ 
+         w1 = math.pow(3, 4) * get_prefer_non_empty_machines_score(gcpus_used, gcpus_free, rcpus_used, rcpus_free)
+         w2 = math.pow(3, 3) * get_prefer_most_unused_green_cores_score(gcpus_used, gcpus_free, rcpus_used, rcpus_free)
+-        w3 = math.pow(3, 2) * get_prefer_guranteed_renewable_draw_score(gcpus_used, gcpus_free, rcpus_used, rcpus_free, vm_rq_spec_obj)
+-        w4 = math.pow(3, 1) * get_worst_fit_on_green_cores_score(gcpus_used, gcpus_free, rcpus_used, rcpus_free, vm_rq_spec_obj)
+-        w5 = math.pow(3, 0) * get_best_fit_on_green_cores_score(vcpus_used, vcpus_free, vm_rq_spec_obj)
++        w3 = math.pow(3, 2) * get_prefer_guranteed_renewable_draw_score(gcpus_used, gcpus_free, rcpus_used, rcpus_free, type, weight_properties.vcpus)
++        w4 = math.pow(3, 1) * get_worst_fit_on_green_cores_score(gcpus_used, gcpus_free, rcpus_used, rcpus_free, type, weight_properties.vcpus)
++        w5 = math.pow(3, 0) * get_best_fit_on_green_cores_score(vcpus_used, vcpus_free)
+ 
+-        return w1 + w2 + w3 + w4 + w5
++        final_weight = w1 + w2 + w3 + w4 + w5
++        return final_weight
+diff --git a/nova/thari-refresh-nova.sh b/nova/thari-refresh-nova.sh
+new file mode 100644
+index 00000000000..729adbbc969
+--- /dev/null
++++ b/nova/thari-refresh-nova.sh
+@@ -0,0 +1,21 @@
++REMOTE_HOST=$1
++
++NOVA_ROOT=/opt/stack/nova/nova
++
++echo 'uploading files...'
++
++#scp -r ./compute/resource_tracker.py stack@$REMOTE_HOST:$NOVA_ROOT/compute/
++#scp -r ./conf/compute.py stack@$REMOTE_HOST:$NOVA_ROOT/conf/
++#scp -r ./objects/compute_node.py stack@$REMOTE_HOST:$NOVA_ROOT/objects/
++#scp -r ./objects/numa.py stack@$REMOTE_HOST:$NOVA_ROOT/objects/
++#scp -r ./scheduler/host_manager.py stack@$REMOTE_HOST:$NOVA_ROOT/scheduler/host_manager.py
++#scp -r ./virt/hardware.py stack@$REMOTE_HOST:$NOVA_ROOT/virt/
++#scp -r ./virt/libvirt/driver.py stack@$REMOTE_HOST:$NOVA_ROOT/virt/libvirt/
++#scp -r ./virt/libvirt/host.py stack@$REMOTE_HOST:$NOVA_ROOT/virt/libvirt/
++
++scp -r ./scheduler/filters/compute_filter.py stack@$REMOTE_HOST:$NOVA_ROOT/scheduler/filters/
++scp -r ./scheduler/weights/cpu.py stack@$REMOTE_HOST:$NOVA_ROOT/scheduler/weights/
++scp -r ./scheduler/manager.py stack@$REMOTE_HOST:$NOVA_ROOT/scheduler/
++
++echo 'restarting devstack services...'
++ssh stack@$REMOTE_HOST 'sudo systemctl restart devstack@*'
+\ No newline at end of file
+
+From b469e5585aaddd8ab42e6fd95ba71702b3c9e45a Mon Sep 17 00:00:00 2001
+From: "Tharindu B. Hewage" <tharindu.b.hewage@gmail.com>
+Date: Sat, 27 Jan 2024 14:31:45 +1100
+Subject: [PATCH 10/10] PoC: green-fit impl
+
+fix green fit impl
+---
+ nova/scheduler/weights/cpu.py | 127 ++++++++++++++++++++++++----------
+ 1 file changed, 89 insertions(+), 38 deletions(-)
+
+diff --git a/nova/scheduler/weights/cpu.py b/nova/scheduler/weights/cpu.py
+index b566c0f80ca..dd58fdfa1e0 100644
+--- a/nova/scheduler/weights/cpu.py
++++ b/nova/scheduler/weights/cpu.py
+@@ -32,43 +32,50 @@
+ CONF = nova.conf.CONF
+ 
+ 
+-def get_prefer_non_empty_machines_score(used_gc, free_gc, used_rc, free_rc):
+-    if used_gc + used_rc > 0:
+-        return 1
+-    else:
++def get_prefer_non_empty_machines_score(usable_cores, used_cores):
++    free_cores = usable_cores - used_cores
++    if free_cores == 0:
+         return 0
++    return 1
+ 
+ 
+-def get_prefer_most_unused_green_cores_score(used_gc, free_gc, used_rc, free_rc):
+-    if free_gc + used_gc == 0:
+-        return 0
+-    else:
+-        return free_gc / (free_gc + used_gc)
++def get_prefer_most_unused_green_cores_score(gcpus_avl, gcpus_used):
++    MAX_CPUS = 16.0
++    free_gcpus = gcpus_avl - gcpus_used
++    score = free_gcpus / MAX_CPUS
++    return score
+ 
+ 
+-def get_prefer_guranteed_renewable_draw_score(used_gc, free_gc, used_rc, free_rc, type, vm_vcpus):
++def get_prefer_guranteed_renewable_draw_score(type, rcpus_avl, rcpus_used, gcpus_avl, gcpus_used, vm_cpus):
+     if type == 'regular':
+         return 0
+ 
+-    overflow = vm_vcpus - free_rc
+-    if 0 < overflow <= free_gc:
++    rcpus_free = rcpus_avl - rcpus_used
++    gcpus_free = gcpus_avl - gcpus_used
++    rcpus_overflow = vm_cpus - rcpus_free
++
++    if 0 < rcpus_overflow <= gcpus_free:
+         return 1
+-    else:
+-        return 0
+ 
++    return 0
+ 
+-def get_worst_fit_on_green_cores_score(used_gc, free_gc, used_rc, free_rc, type, vm_vcpus):
+-    if free_gc + used_gc == 0:
+-        return 0
+-    overflow = vm_vcpus - free_rc
+-    if 0 < overflow <= free_gc:
+-        return free_gc / (free_gc + used_gc)
+-    else:
++
++def get_worst_fit_on_green_cores_score(rcpus_avl, rcpus_used, gcpus_avl, gcpus_used, usable_cores, used_cores, vm_cpus):
++    rcpus_free = rcpus_avl - rcpus_used
++    gcpus_free = gcpus_avl - gcpus_used
++    is_alloc_on_gcpus = rcpus_free < vm_cpus <= (rcpus_free + gcpus_free)
++    if not is_alloc_on_gcpus:
+         return 0
+ 
++    score = 1 - get_best_fit_score(usable_cores=usable_cores, used_cores=used_cores, vm_cpus=vm_cpus)
++    return score
+ 
+-def get_best_fit_on_green_cores_score(used_vcpu, free_vcpu):
+-    return 1 - (free_vcpu / (used_vcpu + free_vcpu))
++
++def get_best_fit_score(usable_cores, used_cores, vm_cpus):
++    free_cores = usable_cores - used_cores
++    raw_score = free_cores - vm_cpus
++    score = 1 - raw_score / usable_cores
++    return score
+ 
+ 
+ def get_cpu_attrs(host_state):
+@@ -81,6 +88,44 @@ def get_cpu_attrs(host_state):
+     return gcpus_free, gcpus_used, rcpus_free, rcpus_used, vcpus_free, vcpus_used
+ 
+ 
++def get_final_weight(usable_cores, used_cores, gcpus_avl, gcpus_used, rcpus_avl, rcpus_used, type, vm_cpus):
++
++    w1 = math.pow(3, 4) * get_prefer_non_empty_machines_score(
++        usable_cores=usable_cores,
++        used_cores=used_cores
++    )
++    w2 = math.pow(3, 3) * get_prefer_most_unused_green_cores_score(
++        gcpus_avl=gcpus_avl,
++        gcpus_used=gcpus_used
++    )
++    w3 = math.pow(3, 2) * get_prefer_guranteed_renewable_draw_score(
++        type=type,
++        rcpus_used=rcpus_used,
++        gcpus_used=gcpus_used,
++        gcpus_avl=gcpus_avl,
++        rcpus_avl=rcpus_avl,
++        vm_cpus=vm_cpus
++    )
++    w4 = math.pow(3, 1) * get_worst_fit_on_green_cores_score(
++        usable_cores=usable_cores,
++        used_cores=used_cores,
++        gcpus_avl=gcpus_avl,
++        gcpus_used=gcpus_used,
++        rcpus_avl=rcpus_avl,
++        rcpus_used=rcpus_used,
++        vm_cpus=vm_cpus
++    )
++    w5 = math.pow(3, 0) * get_best_fit_score(
++        usable_cores=usable_cores,
++        used_cores=used_cores,
++        vm_cpus=vm_cpus
++    )
++
++    final_weight = w1 + w2 + w3 + w4 + w5
++
++    return final_weight
++
++
+ class CPUWeigher(weights.BaseHostWeigher):
+     minval = 0
+ 
+@@ -92,9 +137,11 @@ def weight_multiplier(self, host_state):
+ 
+     def _weigh_object(self, host_state, weight_properties):
+         """Higher weights win.  We want spreading to be the default."""
+-        LOG.debug("tharindu-green-cores: CORE_USAGE['core_usage'] %(weight_properties)s", {'weight_properties': CORE_USAGE['core_usage']})
++        LOG.debug("tharindu-green-cores: CORE_USAGE['core_usage'] %(weight_properties)s",
++                  {'weight_properties': CORE_USAGE['core_usage']})
+         LOG.debug("tharindu-green-cores@weighter: host ip %(ip)s", {'ip': host_state.host_ip})
+-        LOG.debug("tharindu-green-cores@weighter: weight_properties %(weight_properties)s", {'weight_properties': weight_properties})
++        LOG.debug("tharindu-green-cores@weighter: weight_properties %(weight_properties)s",
++                  {'weight_properties': weight_properties})
+         # vcpus_free = (
+         #     host_state.vcpus_total * host_state.cpu_allocation_ratio -
+         #     host_state.vcpus_used)
+@@ -110,19 +157,23 @@ def _weigh_object(self, host_state, weight_properties):
+         gcpus_avl = core_usage['green-cores-avl']
+         rcpus_used = core_usage['reg-cores-usg']
+         gcpus_used = core_usage['green-cores-usg']
+-        gcpus_free = gcpus_avl - gcpus_used
+-        rcpus_free = rcpus_avl - rcpus_used
+-        vcpus_used = rcpus_used + gcpus_used
+-        vcpus_free = rcpus_free + gcpus_free
+ 
+-        hints = weight_properties.scheduler_hints
+-        type = hints['type'][0]
+-
+-        w1 = math.pow(3, 4) * get_prefer_non_empty_machines_score(gcpus_used, gcpus_free, rcpus_used, rcpus_free)
+-        w2 = math.pow(3, 3) * get_prefer_most_unused_green_cores_score(gcpus_used, gcpus_free, rcpus_used, rcpus_free)
+-        w3 = math.pow(3, 2) * get_prefer_guranteed_renewable_draw_score(gcpus_used, gcpus_free, rcpus_used, rcpus_free, type, weight_properties.vcpus)
+-        w4 = math.pow(3, 1) * get_worst_fit_on_green_cores_score(gcpus_used, gcpus_free, rcpus_used, rcpus_free, type, weight_properties.vcpus)
+-        w5 = math.pow(3, 0) * get_best_fit_on_green_cores_score(vcpus_used, vcpus_free)
++        usable_cores = rcpus_avl + gcpus_avl
++        used_cores = rcpus_used + gcpus_used
+ 
+-        final_weight = w1 + w2 + w3 + w4 + w5
++        hints = weight_properties.scheduler_hints
++        vm_type = hints['type'][0]
++
++        vm_cpus = weight_properties.vcpus
++
++        final_weight = get_final_weight(
++            usable_cores=usable_cores,
++            used_cores=used_cores,
++            gcpus_avl=gcpus_avl,
++            gcpus_used=gcpus_used,
++            rcpus_avl=rcpus_avl,
++            rcpus_used=rcpus_used,
++            type=vm_type,
++            vm_cpus=vm_cpus
++        )
+         return final_weight
