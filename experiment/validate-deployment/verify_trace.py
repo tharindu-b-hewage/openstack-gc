@@ -13,16 +13,19 @@ def get_inventory(json_string):
 inventory = get_inventory(init_inv_gc_awake)
 
 # df = pd.read_csv(sys.argv[1])
-#df = pd.read_csv('validation-trace-files/validation-trace_evict-1.0.csv')
+df = pd.read_csv('validation-trace-files/validation-trace_evict-1.0.csv')
 #df = pd.read_csv('validation-trace-files/validation-trace_evict-0.0.csv')
-df = pd.read_csv('validation-trace-files/validation-trace_evict-0.1179.csv')
+#df = pd.read_csv('validation-trace-files/validation-trace_evict-0.1179.csv')
 df = df.sort_values(by=['time'])
 
 inv_view = []
 
 is_failures = False
 total_vms = 0
+stats=[]
+clk=0
 for index, row in df.iterrows():
+    clk+=1
     did_fail = row['did-fail']
     if did_fail:
         print(row['vm-name'], '---vm rq failed. not relevant for verification. so skipping...')
@@ -66,7 +69,24 @@ for index, row in df.iterrows():
 
     real_inv_after_placement = get_inventory(row['inventory'])
     print('--------- inv after placement at ', row['time'])
+    non_empty_cores=0
+    non_empty_hosts_cores=0
+    g_scores=[]
+    transient_time=0
     for host in real_inv_after_placement:
+        rused = host['reg-cores-usg']
+        gused = host['green-cores-usg']
+        gavl = host['green-cores-avl']
+        ravl = host['reg-cores-avl']
+        utlz = rused + gused
+        non_empty_cores += utlz
+        if utlz > 0:
+            non_empty_hosts_cores+=ravl+gavl
+        r_util = rused+gused-ravl
+        g_score = r_util
+        if r_util <= 0 or gavl <= 0:
+            g_score = 0
+        g_scores.append(g_score)
         inv_view.append({
             'ip': host['host-ip'],
             'reg-used': host['reg-cores-usg'],
@@ -89,6 +109,13 @@ for index, row in df.iterrows():
         print('')
         # print(host['host-ip'], '[', host['reg-cores-usg'], 'of', host['reg-cores-avl'], '] [', host['green-cores-usg'],
         #       'of', host['green-cores-avl'], ']')
+    def mean(list):
+        return sum(list)/len(list)
+    stats.append({
+        'clk': clk,
+        'pd': non_empty_cores/non_empty_hosts_cores,
+        'gs': mean(g_scores)
+    })
 
     placed_host = None
     for post_host in real_inv_after_placement:
@@ -119,6 +146,9 @@ for index, row in df.iterrows():
     inventory = real_inv_after_placement
     total_vms += 1
     print('Total vms:', total_vms)
+
+df = pd.DataFrame(stats)
+df.to_csv('1-prob-evict-trace.csv', index=False)
 
 if is_failures:
     print('There are failures...')
