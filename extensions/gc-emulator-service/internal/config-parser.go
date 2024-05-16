@@ -15,6 +15,8 @@ type ComputeHost struct {
 
 type ConfYaml struct {
 	ComputeHosts []ComputeHost `yaml:"compute-hosts"`
+	HostIP       string        `yaml:"host-ip"`
+	HostPort     string        `yaml:"host-port"`
 }
 
 func NewConfigParser(path string) (ConfYaml, error) {

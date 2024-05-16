@@ -14,6 +14,33 @@ index e1e92736de..082c88f655 100644
  If the strategy is set to ``governor``, a couple of config options are provided
  to define which exact CPU govenor to use for each of the up and down states :
  
+diff --git a/nova/cmd/manage.py b/nova/cmd/manage.py
+index 691945b80d..2e4026314f 100644
+--- a/nova/cmd/manage.py
++++ b/nova/cmd/manage.py
+@@ -3215,7 +3215,7 @@ class ImagePropertyCommands:
+         'instance_uuid', metavar='<instance_uuid>',
+         help='UUID of the instance')
+     @args(
+-        'image_property', metavar='<image_property>',
++        'property', metavar='<image_property>',
+         help='Image property to show')
+     def show(self, instance_uuid=None, image_property=None):
+         """Show value of a given instance image property.
+@@ -3233,10 +3233,10 @@ class ImagePropertyCommands:
+             with context.target_cell(ctxt, im.cell_mapping) as cctxt:
+                 instance = objects.Instance.get_by_uuid(
+                     cctxt, instance_uuid, expected_attrs=['system_metadata'])
+-                property_value = instance.system_metadata.get(
++                image_property = instance.system_metadata.get(
+                     f'image_{image_property}')
+-                if property_value:
+-                    print(property_value)
++                if image_property:
++                    print(image_property)
+                     return 0
+                 else:
+                     print(f'Image property {image_property} not found '
 diff --git a/nova/cmd/status.py b/nova/cmd/status.py
 index da4039d554..4a4e28d7e8 100644
 --- a/nova/cmd/status.py
@@ -37,7 +64,7 @@ index da4039d554..4a4e28d7e8 100644
          return upgradecheck.Result(upgradecheck.Code.SUCCESS)
  
 diff --git a/nova/compute/manager.py b/nova/compute/manager.py
-index 9e39511ddd..a09c9a9c3c 100644
+index 8ca0e1498a..a09c9a9c3c 100644
 --- a/nova/compute/manager.py
 +++ b/nova/compute/manager.py
 @@ -4205,7 +4205,8 @@ class ComputeManager(manager.Manager):
@@ -63,6 +90,24 @@ index 9e39511ddd..a09c9a9c3c 100644
          instance.vm_state = vm_states.SHELVED_OFFLOADED
          instance.task_state = None
          instance.save(expected_task_state=[task_states.SHELVING,
+@@ -9188,16 +9189,12 @@ class ComputeManager(manager.Manager):
+                                    objects.LibvirtVPMEMDevice)):
+                         has_vpmem = True
+                         break
+-            power_management_possible = (
+-                'dst_numa_info' in migrate_data and
+-                migrate_data.dst_numa_info is not None)
+             # No instance booting at source host, but instance dir
+             # must be deleted for preparing next block migration
+             # must be deleted for preparing next live migration w/o shared
+             # storage
+             # vpmem must be cleaned
+-            do_cleanup = (not migrate_data.is_shared_instance_path or
+-                          has_vpmem or power_management_possible)
++            do_cleanup = not migrate_data.is_shared_instance_path or has_vpmem
+             destroy_disks = not migrate_data.is_shared_block_storage
+         elif isinstance(migrate_data, migrate_data_obj.HyperVLiveMigrateData):
+             # NOTE(claudiub): We need to cleanup any zombie Planned VM.
 diff --git a/nova/compute/resource_tracker.py b/nova/compute/resource_tracker.py
 index 9f92b98ba1..bcd3a671ae 100644
 --- a/nova/compute/resource_tracker.py
@@ -194,6 +239,66 @@ index de2743d850..9cf7b3499c 100644
          default=True,
          help="""
  Determine if the source compute host should wait for a ``network-vif-plugged``
+diff --git a/nova/network/neutron.py b/nova/network/neutron.py
+index f37f8a343a..e6d47c9a6b 100644
+--- a/nova/network/neutron.py
++++ b/nova/network/neutron.py
+@@ -3610,7 +3610,6 @@ class API:
+                            'gateway': network_model.IP(
+                                 address=subnet['gateway_ip'],
+                                 type='gateway'),
+-                           'enable_dhcp': False,
+             }
+             if subnet.get('ipv6_address_mode'):
+                 subnet_dict['ipv6_address_mode'] = subnet['ipv6_address_mode']
+@@ -3627,14 +3626,22 @@ class API:
+                         subnet_dict['dhcp_server'] = ip_pair['ip_address']
+                         break
+ 
+-            # NOTE(stblatzheim): If enable_dhcp is set on subnet, but subnet
+-            # has ovn native dhcp and no dhcp-agents. Network owner will be
+-            # network:distributed
+-            # Just rely on enable_dhcp flag given by neutron
+-            # Fix for https://bugs.launchpad.net/nova/+bug/2055245
+-
+-            if subnet.get('enable_dhcp'):
+-                subnet_dict['enable_dhcp'] = True
++            # NOTE(arnaudmorin): If enable_dhcp is set on subnet, but, for
++            # some reason neutron did not have any DHCP port yet, we still
++            # want the network_info to be populated with a valid dhcp_server
++            # value. This is mostly useful for the metadata API (which is
++            # relying on this value to give network_data to the instance).
++            #
++            # This will also help some providers which are using external
++            # DHCP servers not handled by neutron.
++            # In this case, neutron will never create any DHCP port in the
++            # subnet.
++            #
++            # Also note that we cannot set the value to None because then the
++            # value would be discarded by the metadata API.
++            # So the subnet gateway will be used as fallback.
++            if subnet.get('enable_dhcp') and 'dhcp_server' not in subnet_dict:
++                subnet_dict['dhcp_server'] = subnet['gateway_ip']
+ 
+             subnet_object = network_model.Subnet(**subnet_dict)
+             for dns in subnet.get('dns_nameservers', []):
+diff --git a/nova/objects/instance_numa.py b/nova/objects/instance_numa.py
+index b7d69a90f9..28e877574d 100644
+--- a/nova/objects/instance_numa.py
++++ b/nova/objects/instance_numa.py
+@@ -293,12 +293,6 @@ class InstanceNUMATopology(base.NovaObject,
+             cell.cpu_pinning.values() for cell in self.cells
+             if cell.cpu_pinning]))
+ 
+-    @property
+-    def cpuset_reserved(self):
+-        return set(itertools.chain.from_iterable([
+-            cell.cpuset_reserved for cell in self.cells
+-            if cell.cpuset_reserved]))
+-
+     def clear_host_pinning(self):
+         """Clear any data related to how instance is pinned to the host.
+ 
 diff --git a/nova/objects/numa.py b/nova/objects/numa.py
 index 36f51201b0..d443581221 100644
 --- a/nova/objects/numa.py
@@ -253,7 +358,7 @@ index 21c7fd4d3d..2da3648dd5 100644
 +
          return True
 diff --git a/nova/scheduler/manager.py b/nova/scheduler/manager.py
-index 620519d403..e3dcdfee9f 100644
+index 620519d403..4c0e05f111 100644
 --- a/nova/scheduler/manager.py
 +++ b/nova/scheduler/manager.py
 @@ -23,6 +23,7 @@ import collections
@@ -273,11 +378,13 @@ index 620519d403..e3dcdfee9f 100644
  
  class SchedulerManager(manager.Manager):
      """Chooses a host to run instances on.
-@@ -702,6 +705,9 @@ class SchedulerManager(manager.Manager):
+@@ -702,6 +705,11 @@ class SchedulerManager(manager.Manager):
          scheduling constraints for the request spec object and have been sorted
          according to the weighers.
          """
-+        core_usages = requests.get(url='http://100.64.42.11:4000/gc/core-usage').json()
++        # todo following url needs to be read from the configuration file.
++        # gc-emulation service tracks green core usage across nodes.
++        core_usages = requests.get(url='http://{GC_EMULATION_SERVICE_HOST}:{GC_EMULATION_SERVICE_PORT}/gc/core-usage').json()
 +        global CORE_USAGE
 +        CORE_USAGE['core_usage'] = core_usages
          filtered_hosts = self.host_manager.get_filtered_hosts(host_states,
@@ -643,10 +750,206 @@ index 6cb4172924..0d592fbdbe 100644
  class PlacementHelperMixin:
      """A helper mixin for interacting with placement."""
 diff --git a/nova/tests/functional/libvirt/test_power_manage.py b/nova/tests/functional/libvirt/test_power_manage.py
-index f038a24dd6..dc417712cd 100644
+index f6e4b1ba5b..dc417712cd 100644
 --- a/nova/tests/functional/libvirt/test_power_manage.py
 +++ b/nova/tests/functional/libvirt/test_power_manage.py
-@@ -220,39 +220,6 @@ class PowerManagementTestsGovernor(PowerManagementTestsBase):
+@@ -59,15 +59,8 @@ class PowerManagementTestsBase(base.ServersTestBase):
+             'hw:cpu_policy': 'dedicated',
+             'hw:cpu_thread_policy': 'prefer',
+         }
+-        self.isolate_extra_spec = {
+-            'hw:cpu_policy': 'dedicated',
+-            'hw:cpu_thread_policy': 'prefer',
+-            'hw:emulator_threads_policy': 'isolate',
+-        }
+         self.pcpu_flavor_id = self._create_flavor(
+             vcpu=4, extra_spec=self.extra_spec)
+-        self.isolate_flavor_id = self._create_flavor(
+-            vcpu=4, extra_spec=self.isolate_extra_spec)
+ 
+     def _assert_server_cpus_state(self, server, expected='online'):
+         inst = objects.Instance.get_by_uuid(self.ctxt, server['id'])
+@@ -91,136 +84,6 @@ class PowerManagementTestsBase(base.ServersTestBase):
+                 self.assertEqual('performance', core.governor)
+ 
+ 
+-class FakeCore(object):
+-
+-    def __init__(self, i):
+-        self.ident = i
+-        self.power_state = 'online'
+-
+-    @property
+-    def online(self):
+-        return self.power_state == 'online'
+-
+-    @online.setter
+-    def online(self, state):
+-        if state:
+-            self.power_state = 'online'
+-        else:
+-            self.power_state = 'offline'
+-
+-
+-class CoresStub(object):
+-
+-    def __init__(self):
+-        self.cores = {}
+-
+-    def __call__(self, i):
+-        if i not in self.cores:
+-            self.cores[i] = FakeCore(i)
+-        return self.cores[i]
+-
+-
+-class PowerManagementLiveMigrationTestsBase(base.LibvirtMigrationMixin,
+-                                            PowerManagementTestsBase):
+-
+-    def setUp(self):
+-        super().setUp()
+-
+-        self.useFixture(nova_fixtures.SysFileSystemFixture())
+-        self.flags(cpu_dedicated_set='1-9', cpu_shared_set=None,
+-                   group='compute')
+-        self.flags(vcpu_pin_set=None)
+-        self.flags(cpu_power_management=True, group='libvirt')
+-
+-        # NOTE(artom) Fill up all dedicated CPUs (either with only the
+-        # instance's CPUs, or instance CPUs + 1 emulator thread). This makes
+-        # the assertions further down easier.
+-        self.pcpu_flavor_id = self._create_flavor(
+-            vcpu=9, extra_spec=self.extra_spec)
+-        self.isolate_flavor_id = self._create_flavor(
+-            vcpu=8, extra_spec=self.isolate_extra_spec)
+-
+-        self.start_compute(
+-            host_info=fakelibvirt.HostInfo(cpu_nodes=1, cpu_sockets=1,
+-                                           cpu_cores=5, cpu_threads=2),
+-            hostname='src')
+-        self.src = self.computes['src']
+-        self.src.driver.cpu_api.core = CoresStub()
+-        # NOTE(artom) In init_host() the libvirt driver calls
+-        # power_down_all_dedicated_cpus(). Call it again now after swapping to
+-        # our stub to fake reality.
+-        self.src.driver.cpu_api.power_down_all_dedicated_cpus()
+-
+-        self.start_compute(
+-            host_info=fakelibvirt.HostInfo(cpu_nodes=1, cpu_sockets=1,
+-                                           cpu_cores=5, cpu_threads=2),
+-            hostname='dest')
+-        self.dest = self.computes['dest']
+-        self.dest.driver.cpu_api.power_down_all_dedicated_cpus()
+-
+-    def assert_cores(self, host, cores, online=True):
+-        for i in cores:
+-            self.assertEqual(online, host.driver.cpu_api.core(i).online)
+-
+-
+-class PowerManagementLiveMigrationTests(PowerManagementLiveMigrationTestsBase):
+-
+-    def test_live_migrate_server(self):
+-        self.server = self._create_server(
+-            flavor_id=self.pcpu_flavor_id,
+-            expected_state='ACTIVE', host='src')
+-        server = self._live_migrate(self.server)
+-        self.assertEqual('dest', server['OS-EXT-SRV-ATTR:host'])
+-        # We've powered down the source cores, and powered up the destination
+-        # ones.
+-        self.assert_cores(self.src, range(1, 10), online=False)
+-        self.assert_cores(self.dest, range(1, 10), online=True)
+-
+-    def test_live_migrate_server_with_emulator_threads_isolate(self):
+-        self.server = self._create_server(
+-            flavor_id=self.isolate_flavor_id,
+-            expected_state='ACTIVE', host='src')
+-        server = self._live_migrate(self.server)
+-        self.assertEqual('dest', server['OS-EXT-SRV-ATTR:host'])
+-        # We're using a flavor with 8 CPUs, but with the extra dedicated CPU
+-        # for the emulator threads, we expect all 9 cores to be powered up on
+-        # the dest, and down on the source.
+-        self.assert_cores(self.src, range(1, 10), online=False)
+-        self.assert_cores(self.dest, range(1, 10), online=True)
+-
+-
+-class PowerManagementLiveMigrationRollbackTests(
+-    PowerManagementLiveMigrationTestsBase):
+-
+-    def _migrate_stub(self, domain, destination, params, flags):
+-        conn = self.src.driver._host.get_connection()
+-        dom = conn.lookupByUUIDString(self.server['id'])
+-        dom.fail_job()
+-
+-    def test_live_migrate_server_rollback(self):
+-        self.server = self._create_server(
+-            flavor_id=self.pcpu_flavor_id,
+-            expected_state='ACTIVE', host='src')
+-        server = self._live_migrate(self.server,
+-                                    migration_expected_state='failed')
+-        self.assertEqual('src', server['OS-EXT-SRV-ATTR:host'])
+-        self.assert_cores(self.src, range(1, 10), online=True)
+-        self.assert_cores(self.dest, range(1, 10), online=False)
+-
+-    def test_live_migrate_server_with_emulator_threads_isolate_rollback(self):
+-        self.server = self._create_server(
+-            flavor_id=self.isolate_flavor_id,
+-            expected_state='ACTIVE', host='src')
+-        server = self._live_migrate(self.server,
+-                                    migration_expected_state='failed')
+-        self.assertEqual('src', server['OS-EXT-SRV-ATTR:host'])
+-        # We're using a flavor with 8 CPUs, but with the extra dedicated CPU
+-        # for the emulator threads, we expect all 9 cores to be powered back
+-        # down on the dest, and up on the source.
+-        self.assert_cores(self.src, range(1, 10), online=True)
+-        self.assert_cores(self.dest, range(1, 10), online=False)
+-
+-
+ class PowerManagementTests(PowerManagementTestsBase):
+     """Test suite for a single host with 9 dedicated cores and 1 used for OS"""
+ 
+@@ -267,42 +130,6 @@ class PowerManagementTests(PowerManagementTestsBase):
+         unused_cpus = cpu_dedicated_set - instance_pcpus
+         self._assert_cpu_set_state(unused_cpus, expected='offline')
+ 
+-    def test_create_server_with_emulator_threads_isolate(self):
+-        server = self._create_server(
+-            flavor_id=self.isolate_flavor_id,
+-            expected_state='ACTIVE')
+-        # Let's verify that the pinned CPUs are now online
+-        self._assert_server_cpus_state(server, expected='online')
+-        instance = objects.Instance.get_by_uuid(self.ctxt, server['id'])
+-        numa_topology = instance.numa_topology
+-        # Make sure we've pinned the emulator threads to a separate core
+-        self.assertTrue(numa_topology.cpuset_reserved)
+-        self.assertTrue(
+-            numa_topology.cpu_pinning.isdisjoint(
+-                numa_topology.cpuset_reserved))
+-        self._assert_cpu_set_state(numa_topology.cpuset_reserved,
+-                                   expected='online')
+-
+-    def test_start_stop_server_with_emulator_threads_isolate(self):
+-        server = self._create_server(
+-            flavor_id=self.isolate_flavor_id,
+-            expected_state='ACTIVE')
+-        # Let's verify that the pinned CPUs are now online
+-        self._assert_server_cpus_state(server, expected='online')
+-        instance = objects.Instance.get_by_uuid(self.ctxt, server['id'])
+-        numa_topology = instance.numa_topology
+-        # Make sure we've pinned the emulator threads to a separate core
+-        self.assertTrue(numa_topology.cpuset_reserved)
+-        self.assertTrue(
+-            numa_topology.cpu_pinning.isdisjoint(
+-                numa_topology.cpuset_reserved))
+-        self._assert_cpu_set_state(numa_topology.cpuset_reserved,
+-                                   expected='online')
+-        # Stop and assert we've powered down the emulator threads core as well
+-        server = self._stop_server(server)
+-        self._assert_cpu_set_state(numa_topology.cpuset_reserved,
+-                                   expected='offline')
+-
+     def test_stop_start_server(self):
+         server = self._create_server(
+             flavor_id=self.pcpu_flavor_id,
+@@ -393,39 +220,6 @@ class PowerManagementTestsGovernor(PowerManagementTestsBase):
                            self.restart_compute_service, hostname='compute1')
  
  
@@ -832,11 +1135,64 @@ index b95475f09d..e713794a19 100644
      def test_io_workload(self):
          vms = [vm_states.ACTIVE, vm_states.BUILDING, vm_states.PAUSED]
          tasks = [task_states.RESIZE_MIGRATING, task_states.REBUILDING,
+diff --git a/nova/tests/unit/network/test_neutron.py b/nova/tests/unit/network/test_neutron.py
+index a9aa501a13..0789022cfa 100644
+--- a/nova/tests/unit/network/test_neutron.py
++++ b/nova/tests/unit/network/test_neutron.py
+@@ -3615,8 +3615,8 @@ class TestAPI(TestAPIBase):
+ 
+         subnets = self.api._get_subnets_from_port(self.context, port_data)
+ 
+-        self.assertEqual(subnet_data1[0]['enable_dhcp'],
+-                         subnets[0]['meta']['enable_dhcp'])
++        self.assertEqual(subnet_data1[0]['gateway_ip'],
++                         subnets[0]['meta']['dhcp_server'])
+ 
+     @mock.patch.object(neutronapi, 'get_client', return_value=mock.Mock())
+     def test_get_physnet_tunneled_info_multi_segment(self, mock_get_client):
+diff --git a/nova/tests/unit/objects/test_instance_numa.py b/nova/tests/unit/objects/test_instance_numa.py
+index 5a4c6da1cf..0d3bd0dba0 100644
+--- a/nova/tests/unit/objects/test_instance_numa.py
++++ b/nova/tests/unit/objects/test_instance_numa.py
+@@ -29,12 +29,10 @@ fake_obj_numa_topology = objects.InstanceNUMATopology(
+     instance_uuid=fake_instance_uuid,
+     cells=[
+         objects.InstanceNUMACell(
+-            id=0, cpuset=set(), pcpuset=set([1, 2]),
+-            cpuset_reserved=set([5, 6]), memory=512,
++            id=0, cpuset=set(), pcpuset=set([1, 2]), memory=512,
+             pagesize=2048),
+         objects.InstanceNUMACell(
+-            id=1, cpuset=set(), pcpuset=set([3, 4]),
+-            cpuset_reserved=set([7, 8]), memory=512,
++            id=1, cpuset=set(), pcpuset=set([3, 4]), memory=512,
+             pagesize=2048),
+     ])
+ 
+@@ -157,10 +155,6 @@ class _TestInstanceNUMACell(object):
+         topo_obj.cells[1].pin_vcpus((3, 0), (4, 1))
+         self.assertEqual(set([0, 1, 10, 11]), topo_obj.cpu_pinning)
+ 
+-    def test_cpuset_reserved(self):
+-        topo_obj = get_fake_obj_numa_topology(self.context)
+-        self.assertEqual(set([5, 6, 7, 8]), topo_obj.cpuset_reserved)
+-
+     def test_clear_host_pinning(self):
+         topo_obj = get_fake_obj_numa_topology(self.context)
+         topo_obj.cells[0].pin_vcpus((1, 10), (2, 11))
 diff --git a/nova/tests/unit/virt/libvirt/cpu/test_api.py b/nova/tests/unit/virt/libvirt/cpu/test_api.py
-index 890f4566c4..18b927302f 100644
+index 408496dbd3..18b927302f 100644
 --- a/nova/tests/unit/virt/libvirt/cpu/test_api.py
 +++ b/nova/tests/unit/virt/libvirt/cpu/test_api.py
-@@ -57,12 +57,6 @@ class TestAPI(test.NoDBTestCase):
+@@ -24,7 +24,6 @@ class TestAPI(test.NoDBTestCase):
+     def setUp(self):
+         super(TestAPI, self).setUp()
+         self.core_1 = api.Core(1)
+-        self.api = api.API()
+ 
+         # Create a fake instance with two pinned CPUs but only one is on the
+         # dedicated set
+@@ -58,12 +57,6 @@ class TestAPI(test.NoDBTestCase):
          self.assertEqual('fake_governor', self.core_1.governor)
          mock_get_governor.assert_called_once_with(self.core_1.ident)
  
@@ -849,8 +1205,152 @@ index 890f4566c4..18b927302f 100644
      @mock.patch.object(core, 'set_governor')
      def test_set_governor_low(self, mock_set_governor):
          self.flags(cpu_power_governor_low='fake_low_gov', group='libvirt')
-@@ -243,3 +237,42 @@ class TestAPI(test.NoDBTestCase):
-         api.validate_all_dedicated_cpus()
+@@ -83,7 +76,7 @@ class TestAPI(test.NoDBTestCase):
+         self.flags(cpu_power_management=True, group='libvirt')
+         self.flags(cpu_dedicated_set='1-2', group='compute')
+ 
+-        self.api.power_up_for_instance(self.fake_inst)
++        api.power_up(self.fake_inst)
+         # only core #2 can be set as core #0 is not on the dedicated set
+         # As a reminder, core(i).online calls set_online(i)
+         mock_online.assert_called_once_with(2)
+@@ -94,7 +87,7 @@ class TestAPI(test.NoDBTestCase):
+         self.flags(cpu_power_management_strategy='governor', group='libvirt')
+         self.flags(cpu_dedicated_set='1-2', group='compute')
+ 
+-        self.api.power_up_for_instance(self.fake_inst)
++        api.power_up(self.fake_inst)
+         # only core #2 can be set as core #1 is not on the dedicated set
+         # As a reminder, core(i).set_high_governor calls set_governor(i)
+         mock_set_governor.assert_called_once_with(2, 'performance')
+@@ -102,13 +95,13 @@ class TestAPI(test.NoDBTestCase):
+     @mock.patch.object(core, 'set_online')
+     def test_power_up_skipped(self, mock_online):
+         self.flags(cpu_power_management=False, group='libvirt')
+-        self.api.power_up_for_instance(self.fake_inst)
++        api.power_up(self.fake_inst)
+         mock_online.assert_not_called()
+ 
+     @mock.patch.object(core, 'set_online')
+     def test_power_up_skipped_if_standard_instance(self, mock_online):
+         self.flags(cpu_power_management=True, group='libvirt')
+-        self.api.power_up_for_instance(objects.Instance(numa_topology=None))
++        api.power_up(objects.Instance(numa_topology=None))
+         mock_online.assert_not_called()
+ 
+     @mock.patch.object(core, 'set_offline')
+@@ -116,7 +109,7 @@ class TestAPI(test.NoDBTestCase):
+         self.flags(cpu_power_management=True, group='libvirt')
+         self.flags(cpu_dedicated_set='1-2', group='compute')
+ 
+-        self.api.power_down_for_instance(self.fake_inst)
++        api.power_down(self.fake_inst)
+         # only core #2 can be set as core #1 is not on the dedicated set
+         # As a reminder, core(i).online calls set_online(i)
+         mock_offline.assert_called_once_with(2)
+@@ -127,7 +120,7 @@ class TestAPI(test.NoDBTestCase):
+         self.flags(cpu_power_management_strategy='governor', group='libvirt')
+         self.flags(cpu_dedicated_set='0-1', group='compute')
+ 
+-        self.api.power_down_for_instance(self.fake_inst)
++        api.power_down(self.fake_inst)
+ 
+         # Make sure that core #0 is ignored, since it is special and cannot
+         # be powered down.
+@@ -139,7 +132,7 @@ class TestAPI(test.NoDBTestCase):
+         self.flags(cpu_power_management_strategy='governor', group='libvirt')
+         self.flags(cpu_dedicated_set='1-2', group='compute')
+ 
+-        self.api.power_down_for_instance(self.fake_inst)
++        api.power_down(self.fake_inst)
+ 
+         # only core #2 can be set as core #0 is not on the dedicated set
+         # As a reminder, core(i).set_high_governor calls set_governor(i)
+@@ -148,13 +141,13 @@ class TestAPI(test.NoDBTestCase):
+     @mock.patch.object(core, 'set_offline')
+     def test_power_down_skipped(self, mock_offline):
+         self.flags(cpu_power_management=False, group='libvirt')
+-        self.api.power_down_for_instance(self.fake_inst)
++        api.power_down(self.fake_inst)
+         mock_offline.assert_not_called()
+ 
+     @mock.patch.object(core, 'set_offline')
+     def test_power_down_skipped_if_standard_instance(self, mock_offline):
+         self.flags(cpu_power_management=True, group='libvirt')
+-        self.api.power_down_for_instance(objects.Instance(numa_topology=None))
++        api.power_down(objects.Instance(numa_topology=None))
+         mock_offline.assert_not_called()
+ 
+     @mock.patch.object(core, 'set_offline')
+@@ -162,7 +155,7 @@ class TestAPI(test.NoDBTestCase):
+         self.flags(cpu_power_management=True, group='libvirt')
+         self.flags(cpu_dedicated_set='0-2', group='compute')
+ 
+-        self.api.power_down_all_dedicated_cpus()
++        api.power_down_all_dedicated_cpus()
+         # All dedicated CPUs are turned offline, except CPU0
+         mock_offline.assert_has_calls([mock.call(1), mock.call(2)])
+ 
+@@ -172,7 +165,7 @@ class TestAPI(test.NoDBTestCase):
+         self.flags(cpu_power_management_strategy='governor', group='libvirt')
+         self.flags(cpu_dedicated_set='0-2', group='compute')
+ 
+-        self.api.power_down_all_dedicated_cpus()
++        api.power_down_all_dedicated_cpus()
+         # All dedicated CPUs are turned offline, except CPU0
+         mock_set_governor.assert_has_calls([mock.call(1, 'powersave'),
+                                             mock.call(2, 'powersave')])
+@@ -180,7 +173,7 @@ class TestAPI(test.NoDBTestCase):
+     @mock.patch.object(core, 'set_offline')
+     def test_power_down_all_dedicated_cpus_skipped(self, mock_offline):
+         self.flags(cpu_power_management=False, group='libvirt')
+-        self.api.power_down_all_dedicated_cpus()
++        api.power_down_all_dedicated_cpus()
+         mock_offline.assert_not_called()
+ 
+     @mock.patch.object(core, 'set_offline')
+@@ -189,7 +182,7 @@ class TestAPI(test.NoDBTestCase):
+     ):
+         self.flags(cpu_power_management=True, group='libvirt')
+         self.flags(cpu_dedicated_set=None, group='compute')
+-        self.api.power_down_all_dedicated_cpus()
++        api.power_down_all_dedicated_cpus()
+         mock_offline.assert_not_called()
+ 
+     @mock.patch.object(core, 'get_governor')
+@@ -202,7 +195,7 @@ class TestAPI(test.NoDBTestCase):
+         mock_get_governor.return_value = 'performance'
+         mock_get_online.side_effect = (True, False)
+         self.assertRaises(exception.InvalidConfiguration,
+-                          self.api.validate_all_dedicated_cpus)
++                          api.validate_all_dedicated_cpus)
+ 
+     @mock.patch.object(core, 'get_governor')
+     @mock.patch.object(core, 'get_online')
+@@ -214,7 +207,7 @@ class TestAPI(test.NoDBTestCase):
+         mock_get_online.return_value = True
+         mock_get_governor.side_effect = ('powersave', 'performance')
+         self.assertRaises(exception.InvalidConfiguration,
+-                          self.api.validate_all_dedicated_cpus)
++                          api.validate_all_dedicated_cpus)
+ 
+     @mock.patch.object(core, 'get_governor')
+     @mock.patch.object(core, 'get_online')
+@@ -228,7 +221,7 @@ class TestAPI(test.NoDBTestCase):
+         mock_get_online.return_value = True
+         mock_get_governor.return_value = 'performance'
+ 
+-        self.api.validate_all_dedicated_cpus()
++        api.validate_all_dedicated_cpus()
+ 
+         # Make sure we skipped CPU0
+         mock_get_online.assert_has_calls([mock.call(1), mock.call(2)])
+@@ -241,6 +234,45 @@ class TestAPI(test.NoDBTestCase):
+     def test_validate_all_dedicated_cpus_no_cpu(self):
+         self.flags(cpu_power_management=True, group='libvirt')
+         self.flags(cpu_dedicated_set=None, group='compute')
+-        self.api.validate_all_dedicated_cpus()
++        api.validate_all_dedicated_cpus()
          # no assert we want to make sure the validation won't raise if
          # no dedicated cpus are configured
 +
@@ -987,7 +1487,7 @@ index a8733796ef..afb0742e4a 100644
                 "%(usable_cores)s, vCPUs mapping: %(vcpus_pinning)s")
          msg_args = {
 diff --git a/nova/virt/libvirt/cpu/api.py b/nova/virt/libvirt/cpu/api.py
-index 4725188439..0673b9e26f 100644
+index 1c4bd19bee..0673b9e26f 100644
 --- a/nova/virt/libvirt/cpu/api.py
 +++ b/nova/virt/libvirt/cpu/api.py
 @@ -11,7 +11,6 @@
@@ -1014,11 +1514,196 @@ index 4725188439..0673b9e26f 100644
  
      def set_high_governor(self) -> None:
          core.set_governor(self.ident, CONF.libvirt.cpu_power_governor_high)
-@@ -143,7 +137,24 @@ def validate_all_dedicated_cpus() -> None:
-             continue
-         pcpu = Core(pcpu)
-         # we need to collect the governors strategy and the CPU states
--        governors.add(pcpu.governor)
+@@ -75,126 +69,103 @@ class Core:
+         core.set_governor(self.ident, CONF.libvirt.cpu_power_governor_low)
+ 
+ 
+-class API(object):
+-
+-    def core(self, i):
+-        """From a purely functional point of view, there is no need for this
+-        method. However, we want to test power management in multinode
+-        scenarios (ex: live migration) in our functional tests. If we
+-        instantiated the Core class directly in the methods below, the
+-        functional tests would not be able to distinguish between cores on the
+-        source and destination hosts. In functional tests we can replace this
+-        helper method by a stub that returns a fixture, allowing us to maintain
+-        distinct core power state for each host.
+-
+-        See also nova.virt.libvirt.driver.LibvirtDriver.cpu_api.
+-        """
+-        return Core(i)
+-
+-    def _power_up(self, cpus: ty.Set[int]) -> None:
+-        if not CONF.libvirt.cpu_power_management:
+-            return
+-        cpu_dedicated_set = hardware.get_cpu_dedicated_set_nozero() or set()
+-        powered_up = set()
+-        for cpu in cpus:
+-            if cpu in cpu_dedicated_set:
+-                pcpu = self.core(cpu)
+-                if CONF.libvirt.cpu_power_management_strategy == 'cpu_state':
+-                    pcpu.online = True
+-                else:
+-                    pcpu.set_high_governor()
+-                powered_up.add(str(pcpu))
+-        LOG.debug("Cores powered up : %s", powered_up)
+-
+-    def power_up_for_instance(self, instance: objects.Instance) -> None:
+-        if instance.numa_topology is None:
+-            return
+-        pcpus = instance.numa_topology.cpu_pinning.union(
+-            instance.numa_topology.cpuset_reserved)
+-        self._power_up(pcpus)
+-
+-    def power_up_for_migration(
+-        self, dst_numa_info: objects.LibvirtLiveMigrateNUMAInfo
+-    ) -> None:
+-        pcpus = set()
+-        if 'emulator_pins' in dst_numa_info and dst_numa_info.emulator_pins:
+-            pcpus = dst_numa_info.emulator_pins
+-        for pins in dst_numa_info.cpu_pins.values():
+-            pcpus = pcpus.union(pins)
+-        self._power_up(pcpus)
+-
+-    def _power_down(self, cpus: ty.Set[int]) -> None:
+-        if not CONF.libvirt.cpu_power_management:
+-            return
+-        cpu_dedicated_set = hardware.get_cpu_dedicated_set_nozero() or set()
+-        powered_down = set()
+-        for cpu in cpus:
+-            if cpu in cpu_dedicated_set:
+-                pcpu = self.core(cpu)
+-                if CONF.libvirt.cpu_power_management_strategy == 'cpu_state':
+-                    pcpu.online = False
+-                else:
+-                    pcpu.set_low_governor()
+-                powered_down.add(str(pcpu))
+-        LOG.debug("Cores powered down : %s", powered_down)
+-
+-    def power_down_for_migration(
+-        self, dst_numa_info: objects.LibvirtLiveMigrateNUMAInfo
+-    ) -> None:
+-        pcpus = set()
+-        if 'emulator_pins' in dst_numa_info and dst_numa_info.emulator_pins:
+-            pcpus = dst_numa_info.emulator_pins
+-        for pins in dst_numa_info.cpu_pins.values():
+-            pcpus = pcpus.union(pins)
+-        self._power_down(pcpus)
+-
+-    def power_down_for_instance(self, instance: objects.Instance) -> None:
+-        if instance.numa_topology is None:
+-            return
+-        pcpus = instance.numa_topology.cpu_pinning.union(
+-            instance.numa_topology.cpuset_reserved)
+-        self._power_down(pcpus)
+-
+-    def power_down_all_dedicated_cpus(self) -> None:
+-        if not CONF.libvirt.cpu_power_management:
+-            return
+-
+-        cpu_dedicated_set = hardware.get_cpu_dedicated_set_nozero() or set()
+-        for pcpu in cpu_dedicated_set:
+-            pcpu = self.core(pcpu)
++def power_up(instance: objects.Instance) -> None:
++    if not CONF.libvirt.cpu_power_management:
++        return
++    if instance.numa_topology is None:
++        return
++
++    cpu_dedicated_set = hardware.get_cpu_dedicated_set_nozero() or set()
++    pcpus = instance.numa_topology.cpu_pinning
++    powered_up = set()
++    for pcpu in pcpus:
++        if pcpu in cpu_dedicated_set:
++            pcpu = Core(pcpu)
++            if CONF.libvirt.cpu_power_management_strategy == 'cpu_state':
++                pcpu.online = True
++            else:
++                pcpu.set_high_governor()
++            powered_up.add(str(pcpu))
++    LOG.debug("Cores powered up : %s", powered_up)
++
++
++def power_down(instance: objects.Instance) -> None:
++    if not CONF.libvirt.cpu_power_management:
++        return
++    if instance.numa_topology is None:
++        return
++
++    cpu_dedicated_set = hardware.get_cpu_dedicated_set_nozero() or set()
++    pcpus = instance.numa_topology.cpu_pinning
++    powered_down = set()
++    for pcpu in pcpus:
++        if pcpu in cpu_dedicated_set:
++            pcpu = Core(pcpu)
+             if CONF.libvirt.cpu_power_management_strategy == 'cpu_state':
+                 pcpu.online = False
+             else:
+                 pcpu.set_low_governor()
+-        LOG.debug("Cores powered down : %s", cpu_dedicated_set)
+-
+-    def validate_all_dedicated_cpus(self) -> None:
+-        if not CONF.libvirt.cpu_power_management:
+-            return
+-        cpu_dedicated_set = hardware.get_cpu_dedicated_set() or set()
+-        governors = set()
+-        cpu_states = set()
+-        for pcpu in cpu_dedicated_set:
+-            if (pcpu == 0 and
+-                    CONF.libvirt.cpu_power_management_strategy == 'cpu_state'):
+-                LOG.warning('CPU0 is in cpu_dedicated_set, '
+-                            'but it is not eligible for state management '
+-                            'and will be ignored')
+-                continue
+-            pcpu = self.core(pcpu)
+-            # we need to collect the governors strategy and the CPU states
+-            governors.add(pcpu.governor)
+-            cpu_states.add(pcpu.online)
++            powered_down.add(str(pcpu))
++    LOG.debug("Cores powered down : %s", powered_down)
++
++
++def power_down_all_dedicated_cpus() -> None:
++    if not CONF.libvirt.cpu_power_management:
++        return
++
++    cpu_dedicated_set = hardware.get_cpu_dedicated_set_nozero() or set()
++    for pcpu in cpu_dedicated_set:
++        pcpu = Core(pcpu)
+         if CONF.libvirt.cpu_power_management_strategy == 'cpu_state':
+-            # all the cores need to have the same governor strategy
+-            if len(governors) > 1:
+-                msg = _("All the cores need to have the same governor strategy"
+-                        "before modifying the CPU states. You can reboot the "
+-                        "compute node if you prefer.")
+-                raise exception.InvalidConfiguration(msg)
+-        elif CONF.libvirt.cpu_power_management_strategy == 'governor':
+-            # all the cores need to be online
+-            if False in cpu_states:
+-                msg = _("All the cores need to be online before modifying the "
+-                        "governor strategy.")
+-                raise exception.InvalidConfiguration(msg)
++            pcpu.online = False
++        else:
++            pcpu.set_low_governor()
++    LOG.debug("Cores powered down : %s", cpu_dedicated_set)
++
++
++def validate_all_dedicated_cpus() -> None:
++    if not CONF.libvirt.cpu_power_management:
++        return
++    cpu_dedicated_set = hardware.get_cpu_dedicated_set() or set()
++    governors = set()
++    cpu_states = set()
++    for pcpu in cpu_dedicated_set:
++        if (pcpu == 0 and
++                CONF.libvirt.cpu_power_management_strategy == 'cpu_state'):
++            LOG.warning('CPU0 is in cpu_dedicated_set, but it is not eligible '
++                        'for state management and will be ignored')
++            continue
++        pcpu = Core(pcpu)
++        # we need to collect the governors strategy and the CPU states
 +        try:
 +            governors.add(pcpu.governor)
 +        except FileNotFoundError as e:
@@ -1037,14 +1722,75 @@ index 4725188439..0673b9e26f 100644
 +                )
 +                raise exception.InvalidConfiguration(msg) from e
 +
-         cpu_states.add(pcpu.online)
-     if CONF.libvirt.cpu_power_management_strategy == 'cpu_state':
-         # all the cores need to have the same governor strategy
++        cpu_states.add(pcpu.online)
++    if CONF.libvirt.cpu_power_management_strategy == 'cpu_state':
++        # all the cores need to have the same governor strategy
++        if len(governors) > 1:
++            msg = _("All the cores need to have the same governor strategy"
++                    "before modifying the CPU states. You can reboot the "
++                    "compute node if you prefer.")
++            raise exception.InvalidConfiguration(msg)
++    elif CONF.libvirt.cpu_power_management_strategy == 'governor':
++        # all the cores need to be online
++        if False in cpu_states:
++            msg = _("All the cores need to be online before modifying the "
++                    "governor strategy.")
++            raise exception.InvalidConfiguration(msg)
 diff --git a/nova/virt/libvirt/driver.py b/nova/virt/libvirt/driver.py
-index 2d0bafd3b8..804aef22b4 100644
+index 994d88f16c..804aef22b4 100644
 --- a/nova/virt/libvirt/driver.py
 +++ b/nova/virt/libvirt/driver.py
-@@ -6227,8 +6227,10 @@ class LibvirtDriver(driver.ComputeDriver):
+@@ -544,15 +544,6 @@ class LibvirtDriver(driver.ComputeDriver):
+         # events about success or failure.
+         self._device_event_handler = AsyncDeviceEventsHandler()
+ 
+-        # NOTE(artom) From a pure functionality point of view, there's no need
+-        # for this to be an attribute of self. However, we want to test power
+-        # management in multinode scenarios (ex: live migration) in our
+-        # functional tests. If the power management code was just a bunch of
+-        # module level functions, the functional tests would not be able to
+-        # distinguish between cores on the source and destination hosts.
+-        # See also nova.virt.libvirt.cpu.api.API.core().
+-        self.cpu_api = libvirt_cpu.API()
+-
+     def _discover_vpmems(self, vpmem_conf=None):
+         """Discover vpmems on host and configuration.
+ 
+@@ -833,13 +824,13 @@ class LibvirtDriver(driver.ComputeDriver):
+         # modified by Nova before. Note that it can provide an exception if
+         # either the governor strategies are different between the cores or if
+         # the cores are offline.
+-        self.cpu_api.validate_all_dedicated_cpus()
++        libvirt_cpu.validate_all_dedicated_cpus()
+         # NOTE(sbauza): We powerdown all dedicated CPUs but if some instances
+         # exist that are pinned for some CPUs, then we'll later powerup those
+         # CPUs when rebooting the instance in _init_instance()
+         # Note that it can provide an exception if the config options are
+         # wrongly modified.
+-        self.cpu_api.power_down_all_dedicated_cpus()
++        libvirt_cpu.power_down_all_dedicated_cpus()
+ 
+         # TODO(sbauza): Remove this code once mediated devices are persisted
+         # across reboots.
+@@ -1563,7 +1554,7 @@ class LibvirtDriver(driver.ComputeDriver):
+             if CONF.libvirt.virt_type == 'lxc':
+                 self._teardown_container(instance)
+             # We're sure the instance is gone, we can shutdown the core if so
+-            self.cpu_api.power_down_for_instance(instance)
++            libvirt_cpu.power_down(instance)
+ 
+     def destroy(self, context, instance, network_info, block_device_info=None,
+                 destroy_disks=True, destroy_secrets=True):
+@@ -3217,7 +3208,7 @@ class LibvirtDriver(driver.ComputeDriver):
+ 
+         current_power_state = guest.get_power_state(self._host)
+ 
+-        self.cpu_api.power_up_for_instance(instance)
++        libvirt_cpu.power_up(instance)
+         # TODO(stephenfin): Any reason we couldn't use 'self.resume' here?
+         guest.launch(pause=current_power_state == power_state.PAUSED)
+ 
+@@ -6236,8 +6227,10 @@ class LibvirtDriver(driver.ComputeDriver):
              hv.synic = True
              hv.reset = True
              hv.frequencies = True
@@ -1055,6 +1801,53 @@ index 2d0bafd3b8..804aef22b4 100644
  
              # NOTE(kosamara): Spoofing the vendor_id aims to allow the nvidia
              # driver to work on windows VMs. At the moment, the nvidia driver
+@@ -7705,7 +7698,7 @@ class LibvirtDriver(driver.ComputeDriver):
+                 post_xml_callback()
+ 
+             if power_on or pause:
+-                self.cpu_api.power_up_for_instance(instance)
++                libvirt_cpu.power_up(instance)
+                 guest.launch(pause=pause)
+ 
+             return guest
+@@ -10783,16 +10776,6 @@ class LibvirtDriver(driver.ComputeDriver):
+                         serial_console.release_port(
+                             host=migrate_data.serial_listen_addr, port=port)
+ 
+-                if (
+-                    'dst_numa_info' in migrate_data and
+-                    migrate_data.dst_numa_info
+-                ):
+-                    self.cpu_api.power_down_for_migration(
+-                        migrate_data.dst_numa_info)
+-                else:
+-                    LOG.debug('No dst_numa_info in migrate_data, '
+-                              'no cores to power down in rollback.')
+-
+             if not is_shared_instance_path:
+                 instance_dir = libvirt_utils.get_instance_path_at_destination(
+                     instance, migrate_data)
+@@ -10959,12 +10942,6 @@ class LibvirtDriver(driver.ComputeDriver):
+ 
+                 migrate_data.bdms.append(bdmi)
+ 
+-        if 'dst_numa_info' in migrate_data and migrate_data.dst_numa_info:
+-            self.cpu_api.power_up_for_migration(migrate_data.dst_numa_info)
+-        else:
+-            LOG.debug('No dst_numa_info in migrate_data, '
+-                      'no cores to power up in pre_live_migration.')
+-
+         return migrate_data
+ 
+     def _try_fetch_image_cache(self, image, fetch_func, context, filename,
+@@ -11128,7 +11105,6 @@ class LibvirtDriver(driver.ComputeDriver):
+         :param network_info: instance network information
+         """
+         self.unplug_vifs(instance, network_info)
+-        self.cpu_api.power_down_for_instance(instance)
+ 
+     def _qemu_monitor_announce_self(self, instance):
+         """Send announce_self command to QEMU monitor.
 diff --git a/nova/virt/libvirt/host.py b/nova/virt/libvirt/host.py
 index b57751093e..6e296ce23f 100644
 --- a/nova/virt/libvirt/host.py
@@ -1107,6 +1900,20 @@ index b57751093e..6e296ce23f 100644
  
      def get_cpu_model_names(self):
          """Get the cpu models based on host CPU arch
+diff --git a/nova/virt/netutils.py b/nova/virt/netutils.py
+index 2bc78134a1..0ab3ddc4c1 100644
+--- a/nova/virt/netutils.py
++++ b/nova/virt/netutils.py
+@@ -289,8 +289,7 @@ def _get_nets(vif, subnet, version, net_num, link_id):
+     net_type = ''
+     if subnet.get_meta('ipv6_address_mode') is not None:
+         net_type = '_%s' % subnet.get_meta('ipv6_address_mode')
+-    elif (subnet.get_meta('dhcp_server') is not None or
+-          subnet.get_meta('enable_dhcp')):
++    elif subnet.get_meta('dhcp_server') is not None:
+         net_info = {
+             'id': 'network%d' % net_num,
+             'type': 'ipv%d_dhcp' % version,
 diff --git a/releasenotes/notes/bug-2023018-0f93ca1f679ce259.yaml b/releasenotes/notes/bug-2023018-0f93ca1f679ce259.yaml
 deleted file mode 100644
 index 7d6dfc43db..0000000000
@@ -1122,6 +1929,21 @@ index 7d6dfc43db..0000000000
 -
 -    .. _CPU power management: https://docs.openstack.org/nova/latest/admin/cpu-topologies.html#configuring-cpu-power-management-for-dedicated-cores
 -
+diff --git a/releasenotes/notes/bug-2055245-fix-nova-metadata-api-f60b18b1b594bec0.yaml b/releasenotes/notes/bug-2055245-fix-nova-metadata-api-f60b18b1b594bec0.yaml
+deleted file mode 100644
+index 9db969926a..0000000000
+--- a/releasenotes/notes/bug-2055245-fix-nova-metadata-api-f60b18b1b594bec0.yaml
++++ /dev/null
+@@ -1,9 +0,0 @@
+----
+-fixes:
+-  - |
+-    With the change from ml2/ovs DHCP agents towards OVN implementation
+-    in neutron there is no port with device_owner ``network:dhcp`` anymore.
+-    Instead DHCP is provided by ``network:distributed`` port.
+-    Fix relies on enable_dhcp provided by neutron-api if no port with
+-    ``network:dhcp`` owner is found. See `bug 2055245
+-    <https://bugs.launchpad.net/nova/+bug/2055245>`__ for details.
 diff --git a/releasenotes/notes/libvirt-enlightenments-stop-unconditionally-enabling-evmcs-993a825641c4b9f3.yaml b/releasenotes/notes/libvirt-enlightenments-stop-unconditionally-enabling-evmcs-993a825641c4b9f3.yaml
 deleted file mode 100644
 index 31609f2a2d..0000000000
