@@ -30,7 +30,7 @@ func main() {
 	router.GET("/gc/core-usage", manager.GetCoreUsage)
 	router.POST("/gc/dev/switch", manager.Switch)
 
-	err = router.Run("100.64.42.11:4000")
+	err = router.Run(configs.HostIP + ":" + configs.HostPort)
 	if err != nil {
 		fmt.Println("Unable to start the gc-emulator service", err)
 		return

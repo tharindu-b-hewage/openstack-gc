@@ -52,10 +52,19 @@ Following are common for both Control node and compute nodes. So do that in all 
     ```
 3. Clone devstack `https://github.com/openstack/devstack/tree/stable/2023.2`. Make sure to checkout to `stable/2023.2` branch.
     ```bash
-   git clone https://github.com/openstack/devstack/tree/stable/2023.2
+   git clone https://github.com/openstack/devstack
+   cd devstack
    git checkout stable/2023.2
     ```
-4. Apply the feature patch.
+4. Devstack downloads nova code and then use that during the stack.sh script runtime. We need to modify its code before. 
+that. So we first do a dry run (./stack.sh -> unstack.sh). This will have files downloaded to local. We then apply the
+patch and run stack.sh with necessary configs. For now, run `./stack.sh`, and once completed, run `./unstack.sh`.
+4. Go to openstack sources
+   ```bash 
+   cd /opt/stack/nova
+   ```
+5. Apply the feature patch. Make sure to replace `{GC_EMULATION_SERVICE_HOST}` and `{GC_EMULATION_SERVICE_PORT}` 
+parameters in the patch file. 
    ```bash
    git apply nova-branch_stable-2023.2.patch
    ```
@@ -116,7 +125,7 @@ cores usages in compute nodes.
    - Install json parser for virsh. - Install virsh json parser
      - Run `go install github.com/a-h/virshjson/cmd/virsh-json@latest`
      - Make sure `virsh-json` is detected and identified as a command.
-   - Run `./gc-emulator-service conf.yaml` to start the service (consider creating a screen `screen -S gc-emulation-scr` -> run and detach, if you wish to run as a background process - so chances for os to terminate will be limited).
+   - Run `./gc-emulator-service conf.yaml` to start the service (consider creating a screen `screen -S gc-emulation-scr` -> run and detach, if you wish to run as a background process - so chances for os to terminate will be limited). Also, once devstack is launched, download and source openrc.sh file for the admin project, stop and rerun this service, before testing core sleep operation as it needs to talk to devstack for VM evictions.
 3. Start the Openstack deployment by running `./stack.sh`.
 4. To enforce Green core packing algorithm, open `/etc/nova/nova.conf` and make sure `weight_classes` is set just to CPUWeighter.
    ```bash
@@ -193,7 +202,7 @@ control node.
 1. Now, we have a working Openstack-GC deployment. Let's create a VM. First, lets create a flavor for pinned cores. Log into dashboard and select the
    flavour `m1.nano`. Add and attribute `hw:cpu_policy` with value `dedicated`.
 2. In the dashboard, inspect compute hosts. We should see all compute nodes.
-3. In the dashboard, upgrade quota limits. Calculate total number of cores, and set the limit to that number. (admin->system->default)
+3. In the dashboard, upgrade quota limits. Calculate total number of cores, and set the limit to that number. (admin->system->default). Also, the vm flavor should use cpu pinning. So update its metadata of cpu pinning to `dedicated`.
 4. Now, create a VM with the flavor `m1.nano`. This will be pinned to the stable cores. [create-vm.sh](vm-trace%2Faz-trace-gen%2Fsrc%2Fmain%2Fresources%2Fos-client%2Fcreate-vm.sh)
    will do this, but make sure to download `admin-openrc.sh` from dashboard under `API Access`, and source it in the terminal. Since emulation service uses this file to
    authenticate with Openstack APIs, stop and restart the emulation service once the file is sourced. Also, find the public network's ID from dashboard and update the `create-vm.sh` script.
@@ -249,3 +258,15 @@ Deep Sleep         | Operating Frequency
 ### Notes
 
 Openstack-GC is not tested for production.
+
+### Limitations
+In production, VMs can terminate and vacate the machine. In these cases, core pinning can become fragmented on the machine. However, power draw depends on the number of cores rather than the physical grouping of cores. Therefore, in such cases, the actual core sleep behavior should prioritize sleeping unused cores first, regardless of whether they belong to a specific core group such as green cores.
+
+Our current implementation assumes that all VMs live indefinitely since our experiments are designed for short-term 
+power management and eviction-impact analysis. Therefore, we use group-based core sleeping. Before using OpenStack-GC
+for long-term experiments, the core sleep approach needs to be adjusted, along with the calculation of available/used 
+green/regular cores from group-based to count-based. In doing so, one must address the process of sleeping certain 
+cores, as OpenStack might have hardcoded such operations, which could lead to failures. An example would be the 0th core.
+
+### Monitoring devstack services
+https://docs.openstack.org/devstack/2023.2/systemd.html
