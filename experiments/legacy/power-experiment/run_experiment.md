@@ -1,6 +1,8 @@
 #### Pre-steps
 - In the physically accessible node, make sure hyper-threading and power management is disabled.
 - Get a CentOS7 image and apply CERN real-time linux kernel modules. Upload this image to Openstack-GC.
+  - https://linux.web.cern.ch/rt/
+  - https://platform9.com/kb/openstack/create-qcow2-image-of-a-running-instance
 - Fill the cluster with VMs based on the uploaded image, until all cores in physical node is occupied.
 
 ##### Monitoring

@@ -56,22 +56,68 @@ Following are common for both Control node and compute nodes. So do that in all 
    cd devstack
    git checkout stable/2023.2
     ```
-4. Devstack downloads nova code and then use that during the stack.sh script runtime. We need to modify its code before. 
+4. Create a file name 'local.conf'. Refer to section below, as it contains configurations for control and compute nodes.
+Set it according to the node type.
+5. Devstack downloads nova code and then use that during the stack.sh script runtime. We need to modify its code before. 
 that. So we first do a dry run (./stack.sh -> unstack.sh). This will have files downloaded to local. We then apply the
 patch and run stack.sh with necessary configs. For now, run `./stack.sh`, and once completed, run `./unstack.sh`.
-4. Go to openstack sources
+6. Go to openstack sources
    ```bash 
    cd /opt/stack/nova
    ```
-5. Apply the feature patch. Make sure to replace `{GC_EMULATION_SERVICE_HOST}` and `{GC_EMULATION_SERVICE_PORT}` 
+7. Apply the feature patch. Make sure to replace `{GC_EMULATION_SERVICE_HOST}` and `{GC_EMULATION_SERVICE_PORT}` 
 parameters in the patch file. 
    ```bash
-   git apply nova-branch_stable-2023.2.patch
+   git apply gc_nova_stable-2023.2.patch
    ```
+
+Note: If default location of openstack is going to be changed, following configs needs to be added to the `local.conf` of
+both control and compute nodes.
+(default location is `/opt/stack`). Say we change from `/opt/stack` to `/data/openstack/opt/stack3`, then
+```bash
+DEST=/data/openstack/opt/stack3
+DATA_DIR=$DEST/data
+SUBUNIT_OUTPUT=$DEST/devstack.subunit
+```
+Furthermore, below change is needed in the 'stack.sh' file. From,
+```bash
+if [[ "$GLOBAL_VENV" == "True" ]] ; then
+    # TODO(frickler): find a better solution for this
+    sudo ln -sf /opt/stack/data/venv/bin/cinder-manage /usr/local/bin
+    sudo ln -sf /opt/stack/data/venv/bin/cinder-rtstool /usr/local/bin
+    sudo ln -sf /opt/stack/data/venv/bin/glance /usr/local/bin
+    sudo ln -sf /opt/stack/data/venv/bin/nova-manage /usr/local/bin
+    sudo ln -sf /opt/stack/data/venv/bin/openstack /usr/local/bin
+    sudo ln -sf /opt/stack/data/venv/bin/privsep-helper /usr/local/bin
+    sudo ln -sf /opt/stack/data/venv/bin/rally /usr/local/bin
+    sudo ln -sf /opt/stack/data/venv/bin/tox /usr/local/bin
+
+    setup_devstack_virtualenv
+fi
+```
+to,
+```bash
+if [[ "$GLOBAL_VENV" == "True" ]] ; then
+    # TODO(frickler): find a better solution for this
+    sudo ln -sf /data/openstack/opt/stack3/data/venv/bin/cinder-manage /usr/local/bin
+    sudo ln -sf /data/openstack/opt/stack3/data/venv/bin/cinder-rtstool /usr/local/bin
+    sudo ln -sf /data/openstack/opt/stack3/data/venv/bin/glance /usr/local/bin
+    sudo ln -sf /data/openstack/opt/stack3/data/venv/bin/nova-manage /usr/local/bin
+    sudo ln -sf /data/openstack/opt/stack3/data/venv/bin/openstack /usr/local/bin
+    sudo ln -sf /data/openstack/opt/stack3/data/venv/bin/privsep-helper /usr/local/bin
+    sudo ln -sf /data/openstack/opt/stack3/data/venv/bin/rally /usr/local/bin
+    sudo ln -sf /data/openstack/opt/stack3/data/venv/bin/tox /usr/local/bin
+
+    setup_devstack_virtualenv
+fi
+```
+Furthermore, it is possible that horizon service fails during stack.sh execution due to key permission error. If the 
+changed location is on ntfs drive where ubuntu cannot change permission once mounted, then easiest hack is to edit the
+corresponding python file shown in the error log, and ignore key permission verification logic.
    
 #### Control Node
 
-1. Create a file named `local.conf` with the following content. Make sure to set the host IP to match with the node.
+1. `local.conf`: Make sure to set the host IP to match with the node.
    ```bash
    [[local|localrc]]
    ADMIN_PASSWORD=secret
@@ -137,7 +183,7 @@ cores usages in compute nodes.
    Afterwards, restart the nova services. `sudo systemctl restart devstack@n*`
 
 #### Each compute node
-1. Create a `local.conf` with the following. Make sure to set the placeholder values and core ids for stable+dynamic sets.
+1. `local.conf`: Make sure to set the placeholder values and core ids for stable+dynamic sets.
    ```bash
    [[local|localrc]]
    HOST_IP=<node-ip>
@@ -173,7 +219,7 @@ cores usages in compute nodes.
    - Get the core-power-mgt release from https://github.com/crunchycookie/core-power-mgt/releases/tag/v2.2.0-alpha. 
    Download the binary.
    - Copy the binary to a folder. 
-   - Copy all supporting scripts [scripts](extensions%2Fgc-emulator-service%2Fscripts) and make them runnable `chown +x *.sh`.
+   - Copy all supporting scripts [scripts](extensions%2Fgc-emulator-service%2Fscripts) and make them runnable `chmod +x *.sh`.
    - Also, install `virsh-json` via go and copy that binary to the same folder. 
    - Create a `conf.yaml` file with the following content.
    ```yaml
@@ -215,7 +261,13 @@ Also, if you observe core power status via `turbostat`, you can see that power p
    ```
 8. Ta da! You have a working Openstack-GC cluster with Green Cores. Try experimenting with different scheduling 
 approaches so that unstable Green Cores can be effectively utilized.
-
+9. PS: Launch an instance with the demo project, create and assign a floating IP to that. Get the ID of the default 
+security group and run the following commands to allow ICMP and SSH traffic.
+   ```
+   openstack security group rule create --proto icmp --dst-port 0 <default sec. group id>
+   openstack security group rule create --proto tcp --dst-port 22 <default sec. group id>
+   ```
+   After this, you can SSH into the VM using the floating IP, and also ping.
 ### Experiments
 
 #### Packing experiments
@@ -257,7 +309,8 @@ Deep Sleep         | Operating Frequency
 
 ### Notes
 
-Openstack-GC is not tested for production.
+- Openstack-GC is not tested for production.
+- Tip: Provide internet access to guest VM: https://rahulait.wordpress.com/2016/06/27/manually-routing-traffic-from-br-ex-to-internet-devstack/
 
 ### Limitations
 In production, VMs can terminate and vacate the machine. In these cases, core pinning can become fragmented on the machine. However, power draw depends on the number of cores rather than the physical grouping of cores. Therefore, in such cases, the actual core sleep behavior should prioritize sleeping unused cores first, regardless of whether they belong to a specific core group such as green cores.
