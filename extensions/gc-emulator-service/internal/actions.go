@@ -3,9 +3,8 @@ package internal
 import (
 	"fmt"
 	"log"
-	"slices"
+	"regexp"
 	"strconv"
-	"strings"
 )
 
 func (o *GreenCoreMgt) evictVMsOnGreenCores() error {
@@ -24,8 +23,10 @@ func (o *GreenCoreMgt) evictVMsOnGreenCores() error {
 			}
 			isShelve := false
 			for _, cpuAffinity := range cpuAffinities {
-				pinnedCore, _ := strconv.Atoi(strings.Split(cpuAffinity.EmulatorCPUAffinity, "*: ")[1])
-				if slices.Contains(host.DynamicCoreIds, pinnedCore) {
+				// Note that below parsing works when consecutive cores are pinned for a VM. Eg: 1-4, 5-9, etc.
+				// Other permutations are not tested.
+				pinnedCores := extractPinnedCores(cpuAffinity.EmulatorCPUAffinity)
+				if isIntersecting(host.DynamicCoreIds, pinnedCores) {
 					isShelve = true
 				}
 			}
@@ -53,6 +54,58 @@ func (o *GreenCoreMgt) evictVMsOnGreenCores() error {
 		}
 	}
 	return nil
+}
+
+func isIntersecting(arr1, arr2 []int) bool {
+	// Create a map to store elements of the first array
+	valueMap := make(map[int]bool)
+
+	// Populate the map with elements from the first array
+	for _, value := range arr1 {
+		valueMap[value] = true
+	}
+
+	// Check if any element in the second array exists in the map
+	for _, value := range arr2 {
+		if valueMap[value] {
+			return true
+		}
+	}
+
+	return false
+}
+
+func extractPinnedCores(s string) []int {
+	// Define the regular expression to match the pattern "*: number(-number)?"
+	re := regexp.MustCompile(`\*: (\d+)(-(\d+))?`)
+	matches := re.FindStringSubmatch(s)
+
+	if len(matches) == 0 {
+		return nil // Or handle the error as needed
+	}
+
+	start, err := strconv.Atoi(matches[1])
+	if err != nil {
+		return nil // Or handle the error as needed
+	}
+
+	if matches[3] == "" {
+		// Return a slice with the single value
+		return []int{start}
+	}
+
+	end, err := strconv.Atoi(matches[3])
+	if err != nil {
+		return nil // Or handle the error as needed
+	}
+
+	// Return a slice with the range of values
+	result := make([]int, end-start+1)
+	for i := start; i <= end; i++ {
+		result[i-start] = i
+	}
+
+	return result
 }
 
 func (o *GreenCoreMgt) triggerTransition(isPutToSleep bool) error {
