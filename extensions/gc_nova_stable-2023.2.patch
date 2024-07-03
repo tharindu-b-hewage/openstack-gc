@@ -186,7 +186,7 @@ index 904a788b46..e2cdb6711c 100644
 +        final_weight = 1 - distance
 +        return final_weight
 diff --git a/nova/virt/hardware.py b/nova/virt/hardware.py
-index a8733796ef..afb0742e4a 100644
+index 2727cffee5..75eb4f33ff 100644
 --- a/nova/virt/hardware.py
 +++ b/nova/virt/hardware.py
 @@ -76,6 +76,36 @@ def get_cpu_dedicated_set():
@@ -226,7 +226,7 @@ index a8733796ef..afb0742e4a 100644
  def get_cpu_dedicated_set_nozero():
      """Return cpu_dedicated_set without CPU0, if present"""
      return (get_cpu_dedicated_set() or set()) - {0}
-@@ -720,8 +750,28 @@ def _pack_instance_onto_cores(host_cell, instance_cell,
+@@ -720,8 +750,29 @@ def _pack_instance_onto_cores(host_cell, instance_cell,
          #
          # For an instance_cores=[2, 3], usable_cores=[[0], [4]]
          # vcpus_pinning=[(2, 0), (3, 4)]
@@ -241,6 +241,7 @@ index a8733796ef..afb0742e4a 100644
 +        cpu_stable_set = get_cpu_stable_set()
 +        usable_cores_list = list(itertools.chain(*usable_cores))
 +        if len(cpu_stable_set) > 1:
++            usable_cores_list = sorted(usable_cores_list)
 +            usable_cores_list = sorted(usable_cores_list, key=lambda x: get_priority_weight(x, cpu_stable_set))
 +            msg = ("Using priority core pinning: high priority cores: "
 +                   "%(cpu_stable_set)s, priority ordered host cores: %(usable_cores_list)s")

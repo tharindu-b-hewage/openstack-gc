@@ -153,10 +153,12 @@ cmb_data['idle_std'] = act_vs_slp_data['std']
 cmb_data['pinned'] = pin_vs_slp_data['mean']
 cmb_data['pinned_std'] = pin_vs_slp_data['std']
 
-cmb_data.plot(x='Awake', y=['idle', 'pinned'], kind='barh', xerr=[cmb_data['idle_std'], cmb_data['pinned_std']],
-              capsize=2, figsize=figsize,
-              title='Power Consumption as Cores Sleep', xlabel='CPU PKG Power (W)', ylabel='Number of Cores Awake',
-              width=0.7)
+bars = cmb_data.plot(x='Awake', y=['idle', 'pinned'], kind='barh', xerr=[cmb_data['idle_std'], cmb_data['pinned_std']],
+                     capsize=2, figsize=figsize,
+                     title='Power Consumption as Cores Sleep', xlabel='CPU PKG Power (W)',
+                     ylabel='Number of Cores Awake',
+                     width=0.7)
+
 plt.tight_layout()
 plt.legend()
 plt.savefig('./results/overall_pkg-pw_err-bar.svg', bbox_inches='tight')
