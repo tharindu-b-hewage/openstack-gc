@@ -75,7 +75,7 @@ def plot_metrics(c_data, middle, offset, param='C6%', title='C6-state Residencie
                  out='results/sleep-residency.svg', shift=9):
     plt.clf()
     overall = c_data[c_data['CPU'] == 'Overall'][['Clk', param]]
-    if param != 'CoreTmp':
+    if param == 'CoreTmp':
         overall[param] = c_data[c_data['CPU'] == 'Overall']['PkgTmp']
     n_data = c_data[c_data['CPU'] != 'Overall']
     reg = n_data[n_data['CPU'].astype(int) < 6][['Clk', param]].groupby('Clk').mean().reset_index()
