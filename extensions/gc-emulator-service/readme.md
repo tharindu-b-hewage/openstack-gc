@@ -1,4 +1,4 @@
-#### Green cores emulation service
+#### Green Cores Controller
 
 This service provide green cores-application specific functionality.
 
