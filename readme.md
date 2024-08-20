@@ -314,8 +314,8 @@ For the workload, we deploy VMs with the following configurations and test for t
 | Resources          | CPU: 6 Cores, RAM: 6GB                  |
 | OS                 | CentOS 7                                |
 | Kernel             | Linux 3.10.0 + CERN’s Real-Time patches |
-| System Load        | Load test of RTEval [15]                |
-| Latency Monitoring | Cyclictest [30]                         |
+| System Load        | Load test of RTEval                     |
+| Latency Monitoring | Cyclictest                              |
 
 We conduct a load-matching experiment using the above setup. First, we provide the signal to the
 deployment to wake all renewables-driven cores in the server. This emulates 100% availability of
