@@ -5,8 +5,8 @@ import data.dynamic.get_data as dynamic_data
 import data.isolated.get_data as isolated_data
 from evictvshvm.analyse import analyse as evict_vs_hvm_analyse
 
-plt.rcParams.update({'font.size': 12})
-plt.rcParams["figure.figsize"] = (6,3)
+plt.rcParams.update({'font.size': 16})
+plt.rcParams["figure.figsize"] = (6,2.2)
 
 root = sys.argv[1]
 
