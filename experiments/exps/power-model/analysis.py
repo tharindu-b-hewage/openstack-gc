@@ -2,7 +2,7 @@ import csv
 import pandas as pd
 import matplotlib.pyplot as plt
 
-plt.rcParams.update({'font.size': 12})
+plt.rcParams.update({'font.size': 18})
 
 
 def to_csv_turbostat(logfile_path, csvfile_path):
@@ -147,18 +147,45 @@ pin_vs_slp_data = plot_overall_pw(data=act_vs_slp_df, front_clip=EXP_START, rear
 cmb_data = pd.DataFrame()
 cmb_data['Awake'] = act_vs_slp_data['index']
 
-cmb_data['idle'] = act_vs_slp_data['mean']
+# cmb_data['idle'] = act_vs_slp_data['mean']
+cmb_data['Active'] = act_vs_slp_data['mean']
 cmb_data['idle_std'] = act_vs_slp_data['std']
 
-cmb_data['pinned'] = pin_vs_slp_data['mean']
+# cmb_data['pinned'] = pin_vs_slp_data['mean']
+cmb_data['Pinned'] = pin_vs_slp_data['mean']
 cmb_data['pinned_std'] = pin_vs_slp_data['std']
 
-bars = cmb_data.plot(x='Awake', y=['idle', 'pinned'], kind='barh', xerr=[cmb_data['idle_std'], cmb_data['pinned_std']],
+# draw horizontal bar chart
+bars = cmb_data.plot(x='Awake', y=['Active', 'Pinned'], kind='barh',
+                     xerr=[cmb_data['idle_std'], cmb_data['pinned_std']],
                      capsize=2, figsize=figsize,
-                     title='Power Consumption as Cores Sleep', xlabel='CPU PKG Power (W)',
-                     ylabel='Number of Cores Awake',
+                     # title='Power Consumption as Cores Sleep',
+                     xlabel='CPU Power (W)',
+                     ylabel='Cores Awake',
                      width=0.7)
-
 plt.tight_layout()
 plt.legend()
 plt.savefig('./results/overall_pkg-pw_err-bar.svg', bbox_inches='tight')
+
+# draw line chart
+plt.clf()
+bars = cmb_data.plot(x='Awake', y=['Active', 'Pinned'], kind='line',
+                     # yerr=[cmb_data['idle_std'], cmb_data['pinned_std']],
+                     # capsize=2,
+                     figsize=(10, 3),
+                     # title='Power Consumption as Cores Sleep',
+                     ylabel='CPU Power (W)',
+                     xlabel='Number of Cores Awake',
+                     # marker='o',
+                     style=['-^', '-o'],
+                     color=['blue', 'red'],
+                     # width=0.7
+                     grid=True,
+                     ms=8,
+                     mec='black',
+                     lw=3
+                     )
+plt.minorticks_on()
+plt.tight_layout()
+plt.legend()
+plt.savefig('./results/overall_pkg-pw_line.svg', bbox_inches='tight')

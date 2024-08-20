@@ -2,7 +2,7 @@ import csv
 import pandas as pd
 import matplotlib.pyplot as plt
 
-plt.rcParams.update({'font.size': 12})
+plt.rcParams.update({'font.size': 16})
 
 
 def to_csv_turbostat(logfile_path, csvfile_path):
@@ -59,11 +59,13 @@ def plot_overall_pw(data, front_clip=-1, rear_clip=-1):
     plot_pkg_pw(data, middle=middle, offset=offset, file_name='./results/pkg-pw_raw.svg')
 
     # Residency plotting.
-    plot_metrics(c_data, middle, offset, param='C6%', title='C6-state Residencies', ylbl="Residency (%)",
+    plot_metrics(c_data, middle, offset, param='C6%',
+                 title='C6-state Residencies',
+                 ylbl="Residency (%)",
                  out='results/sleep-residency.svg')
 
     # Frequency plotting.
-    plot_metrics(c_data, middle, offset, param='Avg_MHz', title='Operating Frequency', ylbl="MHz",
+    plot_metrics(c_data, middle, offset, param='Avg_MHz', title='Operating Frequency', ylbl="Freq. (MHz)",
                  out='results/op-frq.svg', shift=280)
 
     # Temp. plotting.
@@ -81,9 +83,9 @@ def plot_metrics(c_data, middle, offset, param='C6%', title='C6-state Residencie
     reg = n_data[n_data['CPU'].astype(int) < 6][['Clk', param]].groupby('Clk').mean().reset_index()
     green = n_data[n_data['CPU'].astype(int) >= 6][['Clk', param]].groupby('Clk').mean().reset_index()
 
-    plt.plot(overall['Clk'], overall[param], color='b', label='CPU Package')
-    plt.plot(reg['Clk'], reg[param], color='brown', label='Regular Cores')
-    plt.plot(green['Clk'], green[param], color='g', label='Green Cores')
+    plt.plot(overall['Clk'], overall[param], color='b', label='Package Average', linewidth=2.5)
+    plt.plot(reg['Clk'], reg[param], color='brown', label='Regular Cores', linewidth=2.5)
+    plt.plot(green['Clk'], green[param], color='g', label='Renewables-driven Cores', linewidth=2.5)
 
     plt.axvline(x=middle - offset, color='r', linestyle='--', linewidth=1)
     plt.axvline(x=middle + offset, color='r', linestyle='--', linewidth=1)
@@ -92,8 +94,10 @@ def plot_metrics(c_data, middle, offset, param='C6%', title='C6-state Residencie
     plt.text(middle, arrow_y - shift, r'$\Delta t < $' + f'{int(gap * 0.5)}' + 's',
              color='red', ha='center', va='top')
 
-    plt.title(title)
-    plt.xlabel("Measurement (0.5 second intervals)")
+    #plt.title(title)
+    #plt.xlabel("Measurement (0.5 second intervals)")
+    plt.grid()
+    plt.minorticks_on()
     plt.ylabel(ylbl)
     plt.tight_layout()
     plt.legend()
@@ -104,9 +108,12 @@ def plot_pkg_pw(data, middle=0, offset=0, file_name=""):
     # normalize PkgWatt.
     data['PkgWatt'] = data['PkgWatt'] / data['PkgWatt'].max()
 
-    data.plot(x='Clk', y='PkgWatt', kind='line', title='Server Power Management with Green Cores',
-              xlabel='Measurement (0.5 second intervals)',
-              ylabel='Normalized Power Draw', figsize=figsize, linewidth=2.5, label="Measured Power")
+    data.plot(x='Clk', y='PkgWatt', kind='line',
+              # title='Server Power Management with Green Cores',
+              xlabel='',
+              #xlabel='Measurement (0.5 second intervals)',
+              ylabel='Norm. Power',
+              figsize=figsize, linewidth=2.5, label="Measured Power")
 
     # max_val = data['Clk'].max()
     # middle = max_val / 2
@@ -122,7 +129,7 @@ def plot_pkg_pw(data, middle=0, offset=0, file_name=""):
     # plt.text(data['Clk'].min(), high_mean, f'{round(high_mean,2)}', color=color, va='bottom', ha='right')
 
     plt.axhline(y=low_mean, color=color, linestyle='--', linewidth=1)
-    plt.text(data['Clk'].min(), low_mean, f'{round(low_mean, 2)}', color=color, va='bottom', ha='right')
+    plt.text(data['Clk'].min() + 15, low_mean, f'{round(low_mean, 2)}', color=color, va='bottom', ha='right')
 
     add_vlines(data, vline_x1=vline_x1, vline_x2=vline_x2)
 
@@ -131,6 +138,8 @@ def plot_pkg_pw(data, middle=0, offset=0, file_name=""):
     plt.text((vline_x1 + vline_x2) / 2, arrow_y - (arrow_y * 0.035), r'$\Delta t < $' + f'{int(gap * 0.5)}' + 's',
              color='red', ha='center', va='top')
 
+    plt.grid()
+    plt.minorticks_on()
     plt.tight_layout()
     plt.legend()
     plt.savefig(file_name, bbox_inches='tight')
@@ -141,7 +150,7 @@ def add_vlines(data, vline_x1=10, vline_x2=20):
     plt.axvline(x=vline_x2, color='r', linestyle='--', linewidth=1)
 
 
-figsize = (10, 3)
+figsize = (10, 2.1)
 
 # Active vs Sleep
 csv_file = to_csv_turbostat(
