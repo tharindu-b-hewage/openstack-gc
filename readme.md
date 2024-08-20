@@ -233,7 +233,7 @@ corresponding python file is shown in the error log and ignores key permission v
    cpu_power_management=False
    ```
 2. Deploy Green Cores mgt daemon (i.e. Core Sleep/Wake daemon).
-    - Get the core-power-mgt release from https://github.com/crunchycookie/core-power-mgt/releases/tag/v2.2.0-alpha.
+    - Get the core-power-mgt release from https://github.com/tharindu-b-hewage/core-power-mgt/releases/tag/v2.2.0-alpha.
       Download the binary.
     - Copy the binary to a folder.
     - Copy all supporting scripts [scripts](extensions%2Fgc-emulator-service%2Fscripts) and make them
