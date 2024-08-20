@@ -156,8 +156,8 @@ corresponding python file is shown in the error log and ignores key permission v
 2. We then deploy a Golang emulation service (i.e. Green Cores Controller) to manage Renewables capacity changes, as
    well as track and provide Green
    cores usages in compute nodes.
-    - Build the service binary by navigating into [gc-emulator-service](extensions%2Fgc-emulator-service), and executing
-      [build-for-linux-amd64.sh](extensions%2Fgc-emulator-service%2Fbuild-for-linux-amd64.sh); `sh build-for-linux-amd64.sh`
+    - Build the service binary by navigating into [green-cores-controller](extensions%2Fgreen-cores-controller), and executing
+      [build-for-linux-amd64.sh](extensions%2Fgreen-cores-controller%2Fbuild-for-linux-amd64.sh); `sh build-for-linux-amd64.sh`
     - Create a new folder in the control node and copy the binary to it.
     - Create a config file named `conf.yaml`. For all compute nodes, add an entry. This information
       are used to unpinning of cores from VMs during force evictions from renewables-driven cores. core IDs should map with the
