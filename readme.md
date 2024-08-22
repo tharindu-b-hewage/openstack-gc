@@ -1,4 +1,4 @@
-## Openstack-GC: a renewable energy harvesting framework for real-time workloads via renewables-driven cores
+## Openstack-GC: A renewable energy harvesting framework for real-time workloads using renewables-driven cores
 
 Openstack-GC is a framework to harvest renewable energy in data centers executing real-time workloads. Unlike
 existing workload temporal flexibility-reliant renewable energy harvest solutions, it exploits
