@@ -39,7 +39,6 @@ def to_csv_turbostat(logfile_path, csvfile_path):
 
 
 def plot_overall_pw(data, front_clip=-1, rear_clip=-1):
-
     if front_clip >= 0 and rear_clip >= 0:
         data = data[data['Clk'] >= front_clip]
         data = data[data['Clk'] <= rear_clip]
@@ -81,11 +80,17 @@ def plot_metrics(c_data, middle, offset, param='C6%', title='C6-state Residencie
     plt.rcParams.update({'font.size': 20})
 
     plt.clf()
-    figsize = (12, 3.7)
-    plt.figure(figsize=figsize)
+    figsize = (12, 4)
 
     x_min = 350
     x_max = 600
+
+    if param == 'CoreTmp':
+        figsize = (20, 8)
+        x_min = 200
+        x_max = 800
+
+    plt.figure(figsize=figsize)
 
     vline_x1 = middle - offset
     vline_x2 = middle + offset
@@ -98,11 +103,36 @@ def plot_metrics(c_data, middle, offset, param='C6%', title='C6-state Residencie
     reg = n_data[n_data['CPU'].astype(int) < 6][['Clk', param]].groupby('Clk').mean().reset_index()
     green = n_data[n_data['CPU'].astype(int) >= 6][['Clk', param]].groupby('Clk').mean().reset_index()
 
-    plt.plot(overall['Clk'], overall[param], color='b', label='CPU Package Average', linewidth=2.5, marker='o', markevery=7)
-    plt.plot(reg['Clk'], reg[param], color='brown', label='Regular Cores', linewidth=2.5, marker='s', markevery=9)
-    plt.plot(green['Clk'], green[param], color='g', label='Renewables-driven Cores', linewidth=2.5, marker='^', markevery=11)
+    # plt.plot(overall['Clk'], overall[param], color='b', label='CPU Package Average', linewidth=2.5, marker='o', markevery=7)
+    # plt.plot(reg['Clk'], reg[param], color='brown', label='Regular Cores', linewidth=2.5, marker='s', markevery=9)
+    # plt.plot(green['Clk'], green[param], color='g', label='Renewables-driven Cores', linewidth=2.5, marker='^', markevery=11)
 
-    add_vlines(None, ymin=0, vline_x1=vline_x1, vline_x2=vline_x2, vline_x3=vline_x3, yshift=yshift)
+    if param != 'CoreTmp':
+        plt.plot(overall['Clk'], overall[param], color='b', label='CPU Package Average', linewidth=2.5, marker='o',
+                 markevery=7)
+        plt.plot(reg['Clk'], reg[param], color='brown', label='Regular Cores', linewidth=2.5, marker='s', markevery=9)
+        plt.plot(green['Clk'], green[param], color='g', label='Renewables-driven Cores', linewidth=2.5, marker='^',
+                 markevery=11)
+        add_vlines(None, ymin=0, vline_x1=vline_x1, vline_x2=vline_x2, vline_x3=vline_x3, yshift=yshift)
+    else:
+        plt.plot(overall['Clk'], overall[param], color='b', label='CPU Package Average', linewidth=2.5, marker='o',
+                 markevery=7)
+        plt.plot(reg['Clk'], reg[param], color='brown', label='Static Cores', linewidth=2.5, marker='s', markevery=9)
+        plt.plot(green['Clk'], green[param], color='g', label='Sleeping Cores', linewidth=2.5, marker='^',
+                 markevery=11)
+
+        plt.axvline(x=vline_x1, color='r', linestyle='--', linewidth=1)
+        plt.text(vline_x1 - 1, green[param].min() + yshift, r'$t_1$', color='red', ha='right', va='bottom',
+                 fontweight='bold')
+
+        plt.axvline(x=vline_x2, color='r', linestyle='--', linewidth=1)
+        plt.text(vline_x2 + 1, green[param].min() + yshift, r'$t_3$', color='red', ha='left', va='bottom',
+                 fontweight='bold')
+
+        before_max = overall[overall['Clk'] < vline_x1]['CoreTmp'].mean()
+        after_max = overall[overall['Clk'] > vline_x2]['CoreTmp'].mean()
+        plot_hline(before_max, x_min, 'pink')
+        plot_hline(after_max, x_min, 'black')
 
     # plt.axvline(x=middle - offset, color='r', linestyle='--', linewidth=1)
     # plt.axvline(x=middle + offset, color='r', linestyle='--', linewidth=1)
@@ -118,8 +148,17 @@ def plot_metrics(c_data, middle, offset, param='C6%', title='C6-state Residencie
     plt.minorticks_on()
     plt.ylabel(ylbl)
     plt.tight_layout()
-    plt.legend(loc='upper left')
+    plt.legend(loc='lower left')
+    if "C6" in param:
+        plt.legend(loc='upper left')
     plt.savefig(out, bbox_inches='tight')
+
+
+def plot_hline(before_max, x_min, color):
+    plt.axhline(y=before_max, color=color, linestyle='--', linewidth=1, label=(r'$Temp_{AVG}$' + ': ' + f'{round(before_max, 2)}'))
+
+    # plt.text(x_min + 1, before_max, (r'$Temp_{AVG}$' + ': ' + f'{round(before_max, 2)}'),
+    #          color='black', va='bottom', ha='left', fontweight='bold')
 
 
 def plot_pkg_pw(data, middle=0, offset=0, file_name=""):
@@ -128,7 +167,7 @@ def plot_pkg_pw(data, middle=0, offset=0, file_name=""):
     x_min = 370
     x_max = 650
     # normalize PkgWatt.
-    #data['PkgWatt'] = data['PkgWatt'] / data['PkgWatt'].max()
+    # data['PkgWatt'] = data['PkgWatt'] / data['PkgWatt'].max()
 
     # max_val = data['Clk'].max()
     # middle = max_val / 2
