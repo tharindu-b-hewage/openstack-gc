@@ -1,1 +1,0 @@
-sudo rteval -d 3600s -L -v &
