@@ -5,10 +5,9 @@ import sys
 import threading
 
 # Configuration
-TRACE_NAME = sys.argv[1]
-CSV_FILE = "traces/" + TRACE_NAME + ".csv"  # Path to CSV file
+CSV_FILE = sys.argv[1]  # Path to trace CSV file
 THRESHOLD = 0.1  # Set intensity threshold
-SWITCH_API_URL = "http://172.23.13.34:2000/gc/dev/switch"  # curl --request POST --location 'http://172.23.13.34:2000/gc/dev/switch'
+SWITCH_API_URL = "http://" + sys.argv[2] + ":" + sys.argv[3] + "/gc/dev/switch"
 
 
 # Function to poll switch API
@@ -34,17 +33,17 @@ df = pd.read_csv(CSV_FILE)
 
 
 def check_core_status():
-    url = "http://172.23.13.34:2000/gc/core-usage"
+    url = "http://" + sys.argv[2] + ":" + sys.argv[3] +"/gc/core-usage"
     response = requests.get(url)
     if response.status_code == 200:
         data = response.json()
         for host in data:
-            if host["host-ip"] == "172.23.13.34":
+            if host["host-ip"] == sys.argv[2]:
                 if int(host["reg-cores-avl"]) == 6:  # cores are off
                     return False
                 else:
                     return True
-        print("Host 172.23.13.34 not found in response.")
+        print("Host " + sys.argv[2] +" not found in response.")
     else:
         print("Failed to fetch data from API.")
 
