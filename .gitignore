@@ -2,3 +2,4 @@
 personal-secrets.txt
 admin-openrc.sh
 .venv
+experiments/vm-packing/secrets.txt
