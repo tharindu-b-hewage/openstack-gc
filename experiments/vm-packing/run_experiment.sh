@@ -11,6 +11,7 @@ NODE_2_IP=$4
 DURATION=$5
 RNW_TRACE_CSV=$6
 VM_TRACE_CSV=$7
+SCHEDULER=$8
 
 # Adjust accordingly.
 GC_EMUL_SERVICE_IP=$NODE_1_IP
@@ -25,7 +26,7 @@ sh clean.sh
 
 echo "Step 02: Starting VM trace..."
 VM_TRACE_LOG=exp_vm_trace.log
-python3 run_vm_trace.py $VM_TRACE_CSV > $VM_TRACE_LOG &
+python3 run_vm_trace.py $VM_TRACE_CSV $SCHEDULER > $VM_TRACE_LOG &
 PID_VM_TRACE=$!
 echo " - VM trace: ${PID_VM_TRACE}"
 

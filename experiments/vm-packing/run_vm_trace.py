@@ -16,7 +16,7 @@ POLL_INTERVAL = 10  # seconds (adjust for desired polling frequency)
 stop_event = threading.Event()
 
 
-def create_vm(is_evictable, vm_name, core_count):
+def create_vm(is_evictable, vm_name, core_count, scheduler):
     """
     Create a VM using your custom create-rt-server.sh script.
     For instance:
@@ -25,6 +25,9 @@ def create_vm(is_evictable, vm_name, core_count):
       sh create-rt-server.sh no_evictable <vm_name> rt_3_PIN
     """
     evictable_arg = "evictable" if is_evictable else "regular"
+    if scheduler == 'with-nova':
+        # Whether to use the default scheduler. Otherwise, the proposed algorithm is requested.
+        evictable_arg = scheduler
     command = ["sh", "create-packing-instance.sh", evictable_arg, vm_name, "pack_" + str(core_count)]
     try:
         result = subprocess.run(command, check=True, capture_output=True, text=True)
@@ -76,6 +79,7 @@ def get_uuid():
 def main():
     # CSV Input and Output paths
     input_csv = sys.argv[1]  # path to trace csv.
+    scheduler = sys.argv[2]
     detailed_output_csv = "results/vm_nLT_details.csv"
     summary_output_csv = "results/vm_summary.csv"
 
@@ -139,7 +143,7 @@ def main():
 
             # 2) Create the VM
             create_time = time.time()
-            create_vm(is_evictable, vm_name, cores)
+            create_vm(is_evictable, vm_name, cores, scheduler)
             stats[is_evictable]["arrived"] += 1
 
             # 3) Poll for up to lifetime_sec to see if the VM is prematurely deleted

@@ -43,3 +43,10 @@ goes beyond the threshold, poll the switch API. Note that cores must be turned o
 prior to experiment. Then if intensity drops below threshold, switch API is again polled.
 2. Run power monitoring through RAPL. Continuously log power information in both nodes.
 3. [run_vm_trace.py](run_vm_trace.py): Replay VM trace, and log nLT, eviction counts at the end.
+
+
+-----
+
+1. If the vm request has 'type' as the scheduling hint, which is used to state VM as an evictable VM, then the proposed
+scheduling algorithm get engaged. Without that, default implementation follows.
+2. Running the experiment with and without the scheduling hint allows us to get data for proposed vs default.
