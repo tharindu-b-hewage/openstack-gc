@@ -4,3 +4,4 @@ admin-openrc.sh
 .venv
 experiments/vm-packing/secrets.txt
 experiments/vm-packing/update_scripts.sh
+experiments/vm-packing/analysis/secrets.csv
