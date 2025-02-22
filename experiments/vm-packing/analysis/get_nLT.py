@@ -48,11 +48,11 @@ def analyse_nlt(exp_type):
     cdf_nova_90 = (nlt_dst_nova <= 0.90).mean() * 100
     cdf_proposed_90 = (nlt_dst_proposed <= 0.90).mean() * 100
 
-    # # You can annotate these percentages in the plot; for a simple text box:
-    # ax.text(0.95, 5e-2,  # x=0.95, y=5e-2 (pick any suitable spot)
-    #         f"Nova: {cdf_nova_90:.2f}%\nProposed: {cdf_proposed_90:.2f}%",
-    #         va='top', ha='left', fontsize=9,
-    #         bbox=dict(boxstyle='round', facecolor='white', alpha=0.7))
+    # You can annotate these percentages in the plot; for a simple text box:
+    ax.text(0.95, 5e-2,  # x=0.95, y=5e-2 (pick any suitable spot)
+            f"Nova: {cdf_nova_90:.2f}%\nProposed: {cdf_proposed_90:.2f}%",
+            va='top', ha='left', fontsize=9,
+            bbox=dict(boxstyle='round', facecolor='white', alpha=0.7))
 
     # --- Labeling and legend ---
     #ax.set_xlabel("Norm. Lifetime (nLT) of an Evicted VM")
