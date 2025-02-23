@@ -102,12 +102,15 @@ def burst_trace(
             new_t = max(new_t, bin_start)
             new_t = min(new_t, bin_end)
 
+            # spread the arrivals.
+
+
             # replicate the same cores, lifetime, etc.
             # or you could vary them slightly if desired
             new_event = (
                 new_t,
                 base_arrival[1],  # same cores
-                base_arrival[2],  # same lifetime
+                min(0.00694444, base_arrival[2] * (1 + random.random() * 3)),  # randomly increase lifetime.
                 base_arrival[3]  # same isEvictable
             )
             new_events.append(new_event)
@@ -126,4 +129,4 @@ def burst_trace(
     print(f"Last arrival time ~ {new_events[-1][0]:.4f} (should be <= {max_time:.4f})")
 
 adjust_lifetime()
-burst_trace(input_csv=SCALED_TRACE, output_csv="AzureTraceScaled.csv", k=3, bin_size=0.01)
+burst_trace(input_csv=SCALED_TRACE, output_csv="AzureTraceScaled.csv", k=8, bin_size=0.01)

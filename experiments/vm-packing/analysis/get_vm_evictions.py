@@ -60,12 +60,14 @@ def analyze_vm_evictions(exp_type):
     x = np.arange(len(labels))
     width = 0.5
 
-    fig, ax = plt.subplots(figsize=(6, 4))
+    fig, ax = plt.subplots(figsize=(3, 2.1))
 
     # Plot best-effort portion
-    p1 = ax.bar(x, be_values, width, label='BestEffort', color='#6EC2E8')
+    p1 = ax.bar(x, be_values, width, label='BestEffort', color='#6EC2E8', linewidth=1, edgecolor='black')
     # Plot critical portion stacked on top
-    p2 = ax.bar(x, cr_values, width, bottom=be_values, label='Critical', color='#ED7777', hatch='///')
+    p2 = ax.bar(x, cr_values, width, bottom=be_values, label='Critical', color='#ED7777', linewidth=1, edgecolor='black'
+                #, hatch='///'
+                )
 
     # Add some text labels inside each bar
     for i in range(len(labels)):
@@ -85,8 +87,8 @@ def analyze_vm_evictions(exp_type):
     ax.set_ylabel('% of total VM arrivals')
     ax.set_xticks(x)
     ax.set_xticklabels(labels)
-    ax.set_title('VM Eviction Incidents')
-    ax.legend()
+    #ax.set_title('VM Eviction Incidents')
+    ax.legend(ncol=2,  columnspacing=0.3)
 
     # Optional: tweak the y-axis to show values more like "0.0, 0.5, 1.0, 1.5..."
     # If you prefer actual percentages, multiply values by 100 above or

@@ -33,10 +33,14 @@ def analyse_nlt(exp_type):
     x_nova, cdf_nova = ecdf(nlt_dst_nova)
     x_proposed, cdf_proposed = ecdf(nlt_dst_proposed)
 
+    # --- Compute fraction of VMs that have nLT <= 0.90 for each curve ---
+    cdf_nova_90 = (nlt_dst_nova >= 0.90).mean() * 100
+    cdf_proposed_90 = (nlt_dst_proposed >= 0.90).mean() * 100
+
     # --- Create the plot ---
-    fig, ax = plt.subplots(figsize=(4,2.0))
-    ax.plot(x_nova, cdf_nova, label='Nova', color='red', lw=2, ls='solid')
-    ax.plot(x_proposed, cdf_proposed, label='Proposed', color='blue', lw=2, ls='dashed')
+    fig, ax = plt.subplots(figsize=(4,1.85))
+    ax.plot(x_nova, cdf_nova, label=f'nova ({cdf_nova_90:.2f}%)', color='red', lw=2, ls='solid')
+    ax.plot(x_proposed, cdf_proposed, label=f'proposed ({cdf_proposed_90:.2f}%)', color='blue', lw=2, ls='dashed')
 
     # --- Use a log scale for the CDF (y-axis) ---
     ax.set_yscale('log')
@@ -44,15 +48,11 @@ def analyse_nlt(exp_type):
     # --- Mark nLT = 0.90 with a vertical line ---
     ax.axvline(0.90, color='gray', linestyle='--', label='nLT=0.90')
 
-    # --- Compute fraction of VMs that have nLT <= 0.90 for each curve ---
-    cdf_nova_90 = (nlt_dst_nova <= 0.90).mean() * 100
-    cdf_proposed_90 = (nlt_dst_proposed <= 0.90).mean() * 100
-
-    # You can annotate these percentages in the plot; for a simple text box:
-    ax.text(0.95, 5e-2,  # x=0.95, y=5e-2 (pick any suitable spot)
-            f"Nova: {cdf_nova_90:.2f}%\nProposed: {cdf_proposed_90:.2f}%",
-            va='top', ha='left', fontsize=9,
-            bbox=dict(boxstyle='round', facecolor='white', alpha=0.7))
+    # # You can annotate these percentages in the plot; for a simple text box:
+    # ax.text(0.95, 5e-2,  # x=0.95, y=5e-2 (pick any suitable spot)
+    #         f"Nova: {cdf_nova_90:.2f}%\nProposed: {cdf_proposed_90:.2f}%",
+    #         va='top', ha='left', fontsize=9,
+    #         bbox=dict(boxstyle='round', facecolor='white', alpha=0.7))
 
     # --- Labeling and legend ---
     #ax.set_xlabel("Norm. Lifetime (nLT) of an Evicted VM")
