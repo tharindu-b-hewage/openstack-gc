@@ -110,7 +110,7 @@ def burst_trace(
             new_event = (
                 new_t,
                 base_arrival[1],  # same cores
-                min(0.00694444, base_arrival[2] * (1 + random.random() * 3)),  # randomly increase lifetime.
+                min(0.00694444, base_arrival[2] * (1 + random.random())),  # randomly increase lifetime.
                 base_arrival[3]  # same isEvictable
             )
             new_events.append(new_event)

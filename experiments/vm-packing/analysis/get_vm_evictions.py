@@ -57,10 +57,11 @@ def analyze_vm_evictions(exp_type):
     be_values = [with_nova_be, prop_be]
     cr_values = [with_nova_cr, prop_cr]
 
-    x = np.arange(len(labels))
-    width = 0.5
+    #x = np.arange(len(labels))
+    x = [0.5, 0.65]
+    width = 0.10
 
-    fig, ax = plt.subplots(figsize=(3, 2.1))
+    fig, ax = plt.subplots(figsize=(2.5, 1.7))
 
     # Plot best-effort portion
     p1 = ax.bar(x, be_values, width, label='BestEffort', color='#6EC2E8', linewidth=1, edgecolor='black')
@@ -88,7 +89,7 @@ def analyze_vm_evictions(exp_type):
     ax.set_xticks(x)
     ax.set_xticklabels(labels)
     #ax.set_title('VM Eviction Incidents')
-    ax.legend(ncol=2,  columnspacing=0.3)
+    ax.legend(ncol=2, loc='lower left', bbox_to_anchor=(-0.24, 1), columnspacing=0.3)
 
     # Optional: tweak the y-axis to show values more like "0.0, 0.5, 1.0, 1.5..."
     # If you prefer actual percentages, multiply values by 100 above or

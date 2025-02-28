@@ -107,13 +107,13 @@ def analyze_scheduling_overhead(exp_type):
     })
 
     sns.set(style="whitegrid")
-    plt.figure(figsize=(3, 2.1))
+    plt.figure(figsize=(2.5, 1.7))
 
     # Now specify x and y from the DataFrame
     sns.boxplot(x="Scheduler", y="Overhead", data=df, palette='Greys')
 
     #plt.title("Distribution of Scheduling Overheads (Box Plot)")
-    plt.ylabel("Overhead (seconds)")
+    plt.ylabel("Seconds")
     plt.xlabel("")
 
     plt.tight_layout()

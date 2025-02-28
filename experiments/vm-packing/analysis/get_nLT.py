@@ -34,11 +34,11 @@ def analyse_nlt(exp_type):
     x_proposed, cdf_proposed = ecdf(nlt_dst_proposed)
 
     # --- Compute fraction of VMs that have nLT <= 0.90 for each curve ---
-    cdf_nova_90 = (nlt_dst_nova >= 0.90).mean() * 100
-    cdf_proposed_90 = (nlt_dst_proposed >= 0.90).mean() * 100
+    cdf_nova_90 = (nlt_dst_nova <= 0.90).mean() * 100
+    cdf_proposed_90 = (nlt_dst_proposed <= 0.90).mean() * 100
 
     # --- Create the plot ---
-    fig, ax = plt.subplots(figsize=(4,1.85))
+    fig, ax = plt.subplots(figsize=(3.3,1.85))
     ax.plot(x_nova, cdf_nova, label=f'nova ({cdf_nova_90:.2f}%)', color='red', lw=2, ls='solid')
     ax.plot(x_proposed, cdf_proposed, label=f'proposed ({cdf_proposed_90:.2f}%)', color='blue', lw=2, ls='dashed')
 
