@@ -215,11 +215,12 @@ corresponding python file is shown in the error log and ignores key permission v
  for VM evictions.
 3. Start the OpenStack deployment by running `./stack.sh`.
 4. To enforce the Green core packing algorithm, open `/etc/nova/nova.conf` and make sure `weight_classes` is set just to
- CPUWeighter.
+ CPUWeighter. Also, set 'cpu_weight_multiplier' to dominate all other weighers.
  ```bash
    [filter_scheduler]
    ...
    weight_classes = nova.scheduler.weights.cpu.CPUWeigher
+   cpu_weight_multiplier = 10
  ```
  Thus, our custom weighter solely performs machine ordering. Our custom filter has already been applied to the default settings.
  Afterwards, restart the nova services. `sudo systemctl restart devstack@n*`
