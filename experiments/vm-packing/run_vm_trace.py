@@ -12,7 +12,6 @@ import threading
 SECONDS_PER_DAY = 86400
 POLL_INTERVAL = 10  # seconds (adjust for desired polling frequency)
 
-
 stop_event = threading.Event()
 
 
@@ -64,7 +63,7 @@ def is_vm_active(vm_name):
     try:
         output = subprocess.check_output(command, stderr=subprocess.STDOUT).decode().strip()
         print(f"[INFO] VM {vm_name} status is: {output}")
-        return True # no errors, means some status exist.
+        return True  # no errors, means some status exist.
     except subprocess.CalledProcessError as e:
         # The VM was not found at
         print(f"[ERROR] Command failed with exit code {e.returncode}")
@@ -92,12 +91,15 @@ def main():
     with open(input_csv, "r", newline="") as fin:
         reader = csv.DictReader(fin)
         for row in reader:
-            vm_name = "packing-exp_" + exp_id + "_" + get_uuid()
+            is_evictable = row["isEvictable"].strip().lower() in ["true", "1", "yes"]
+
+            evictable_prefix = 'BESTEFFORT' if is_evictable else 'LOWLATENCY'
+            vm_name = "packing-exp_" + evictable_prefix + "_" + exp_id + "_" + get_uuid()
             days = float(row["days"])
             lifetime = float(row["lifetime"])
-            cores = int(row["cores"])
+            #cores = int(row["cores"])
+            cores = 2 # hardcoded.
             # Convert the isEvictable column to bool if needed
-            is_evictable = row["isEvictable"].strip().lower() in ["true", "1", "yes"]
 
             arrivals.append({
                 "vm_name": vm_name,
@@ -123,6 +125,7 @@ def main():
     vm_management_threads = []
     for arrival in arrivals:
         print(f"[INFO] deploying VM management for {arrival}")
+
         def _manage_vm_lifecycle(arrival):
             vm_name = arrival["vm_name"]
             arrival_days = arrival["days"]
@@ -155,7 +158,8 @@ def main():
                     return
 
                 time.sleep(POLL_INTERVAL)
-                print("[INFO] monitor | vm: ", vm_name, "elapsed time:", time.time() - create_time, "lifetime(s):", lifetime_sec)
+                print("[INFO] monitor | vm: ", vm_name, "elapsed time:", time.time() - create_time, "lifetime(s):",
+                      lifetime_sec)
                 if not is_vm_active(vm_name):
                     # The VM has been removed (or is no longer ACTIVE) before lifetime ended
                     prematurely_killed = True
@@ -171,7 +175,8 @@ def main():
                     actual_alive_time = now_p - create_time
                     # Delete the VM
                     delete_vm(vm_name)
-                    print("[INFO] monitor | vm: ", vm_name, "reached lifetime, so deleted", "prematurely_killed: ", prematurely_killed)
+                    print("[INFO] monitor | vm: ", vm_name, "reached lifetime, so deleted", "prematurely_killed: ",
+                          prematurely_killed)
                     break
 
             # 4) Compute nLT = (actual_alive_time) / (lifetime_in_seconds)

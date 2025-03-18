@@ -7,6 +7,17 @@ import (
 	"os/exec"
 )
 
+func RunThirdPartyPython(args ...string) error {
+	cmd := exec.Command("python3", args...)
+	cmd.Stderr = os.Stderr // or any other io.Writer
+	out, err := cmd.Output()
+	if err != nil {
+		return fmt.Errorf("failed at running external python script: %w", err)
+	}
+	fmt.Printf("Python Script Output: %s\n", out)
+	return nil
+}
+
 func RunThirdPartyClient[T any](obj *[]T, args ...string) error {
 	cmd := exec.Command("sh", args...)
 	cmd.Stderr = os.Stderr // or any other io.Writer

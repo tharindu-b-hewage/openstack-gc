@@ -8,6 +8,13 @@ import (
 )
 
 func (o *GreenCoreMgt) evictVMsOnGreenCores() error {
+	// Invoke external python script to handle VM migrations.
+	err := RunThirdPartyPython("handle-migrations-for-smt-pool.py", "valley")
+	if err != nil {
+		fmt.Printf("failed to call external python script that handles live migrations of SMT pools...")
+		return err
+	}
+
 	for _, host := range o.conf.ComputeHosts {
 		// Evicting VMs pinned to green cores.
 		var domains []domainsVirshModel
@@ -112,6 +119,11 @@ func (o *GreenCoreMgt) triggerTransition(isPutToSleep bool) error {
 
 	if !isPutToSleep {
 		fmt.Println("waking up gc...")
+		err := RunThirdPartyPython("handle-migrations-for-smt-pool.py", "peak")
+		if err != nil {
+			fmt.Printf("failed to call external python script that handles live migrations of SMT pools...")
+			return err
+		}
 		// order matters: wake core physically and then set polling status.
 		o.putGcToAwakeInHost()
 		o.setPollingEndpointToAwake()
