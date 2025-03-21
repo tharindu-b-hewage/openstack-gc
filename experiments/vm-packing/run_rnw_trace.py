@@ -23,6 +23,8 @@ SWITCH_API_URL = "http://" + sys.argv[2] + ":" + sys.argv[3] + "/gc/dev/switch"
 def poll_switch(action):
     """Send a request to the switch API to turn cores on/off in a separate thread."""
 
+
+
     def _request():
         payload = {"action": action}
         try:

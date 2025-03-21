@@ -15,6 +15,48 @@ POLL_INTERVAL = 10  # seconds (adjust for desired polling frequency)
 stop_event = threading.Event()
 
 
+def get_property_value(filename, key):
+    """
+    Reads the specified property file, searches for the given key
+    and returns its value. If the file or key is missing, returns None.
+    """
+    if not os.path.exists(filename):
+        return None
+
+    with open(filename, 'r') as f:
+        for line in f:
+            line = line.strip()
+            # Skip blank lines and commented lines
+            if not line or line.startswith('#'):
+                continue
+
+            if '=' in line:
+                k, v = line.split('=', 1)
+                if k.strip() == key:
+                    return v.strip()
+    return None
+
+
+def wait_until_switching_false(filename, key='switching', poll_interval=5):
+    filename = '/data/tsaryakarahe/openstack/opt/stack3/openstack-gc/major-revision-experiments/scripts/' + filename
+    """
+    Polls the property file every `poll_interval` seconds until the
+    `switching` attribute is 'false' (case-insensitive).
+    If it's missing or not 'true', we assume we can proceed.
+    """
+    while True:
+        value = get_property_value(filename, key)
+
+        # If 'switching' is strictly 'true', wait; otherwise, proceed
+        if value and value.lower() == 'true':
+            print(f"switching is true, waiting {poll_interval} seconds...")
+            time.sleep(poll_interval)
+        else:
+            # Once 'switching' is false or not present, proceed
+            print("switching is false (or not found). Proceeding...")
+            break
+
+
 def create_vm(is_evictable, vm_name, core_count, scheduler):
     """
     Create a VM using your custom create-rt-server.sh script.
@@ -22,23 +64,28 @@ def create_vm(is_evictable, vm_name, core_count, scheduler):
       sh create-rt-server.sh evictable <vm_name> rt_3_PIN
     or
       sh create-rt-server.sh no_evictable <vm_name> rt_3_PIN
+
+
+    scheduler = proposed / load_shift
     """
-    evictable_arg = "evictable" if is_evictable else "regular"
-    if scheduler == 'with-nova':
-        # Whether to use the default scheduler. Otherwise, the proposed algorithm is requested.
-        evictable_arg = scheduler
-    command = ["sh", "create-packing-instance.sh", evictable_arg, vm_name, "pack_" + str(core_count)]
+    #evictable_arg = "evictable" if is_evictable else "regular"
+    # if scheduler == 'with-nova':
+    #     # Whether to use the default scheduler. Otherwise, the proposed algorithm is requested.
+    #     evictable_arg = scheduler
+    command = ["sh", "create-packing-instance.sh", scheduler, vm_name, "pack_" + str(core_count)]
     try:
         result = subprocess.run(command, check=True, capture_output=True, text=True)
         # If the command succeeds, you can process/log stdout as needed
         print(f"[INFO] VM {vm_name} created successfully.")
         print("[INFO] Script output:\n", result.stdout)
+        return True
     except subprocess.CalledProcessError as e:
         print(f"Script failed with exit code {e.returncode}")
         if e.stdout:
             print("Script STDOUT:\n", e.stdout)
         if e.stderr:
             print("Script STDERR:\n", e.stderr)
+        return False
 
 
 def delete_vm(vm_name):
@@ -57,18 +104,22 @@ def is_vm_active(vm_name):
     """
     Check whether a VM is active in OpenStack.
     Returns:
-        bool: True if the VM is found and in status=ACTIVE, False otherwise.
+        (is_active, non_active_type).
     """
     command = ["openstack", "server", "show", vm_name, "-f", "value", "-c", "status"]
     try:
         output = subprocess.check_output(command, stderr=subprocess.STDOUT).decode().strip()
         print(f"[INFO] VM {vm_name} status is: {output}")
-        return True  # no errors, means some status exist.
+        if output == 'ERROR':
+            print(f"[ERROR] VM status: {output} indicates that VM was not admitted")
+            return False, 'not-admitted'
+
+        print("[INFO] VM is active.")
+        return True, 'active'  # no errors, means some status exist.
     except subprocess.CalledProcessError as e:
         # The VM was not found at
-        print(f"[ERROR] Command failed with exit code {e.returncode}")
-        print("[ERROR] Output:", e.output)
-        return False
+        print(f"[ERROR] Indicates VM was prematurely killed. Command failed with exit code {e.returncode} and output: {e.output}")
+        return False, 'prematurely-killed'
 
 
 def get_uuid():
@@ -97,8 +148,8 @@ def main():
             vm_name = "packing-exp_" + evictable_prefix + "_" + exp_id + "_" + get_uuid()
             days = float(row["days"])
             lifetime = float(row["lifetime"])
-            #cores = int(row["cores"])
-            cores = 2 # hardcoded.
+            cores = int(row["cores"])
+            #cores = 3  # hardcoded.
             # Convert the isEvictable column to bool if needed
 
             arrivals.append({
@@ -118,8 +169,8 @@ def main():
 
     # Track counts for summary
     stats = {
-        True: {"arrived": 0, "prematurely_killed": 0},
-        False: {"arrived": 0, "prematurely_killed": 0}
+        True: {"arrived": 0, "prematurely_killed": 0, "not_admitted": 0},
+        False: {"arrived": 0, "prematurely_killed": 0, "not_admitted": 0}
     }
 
     vm_management_threads = []
@@ -144,14 +195,18 @@ def main():
             if wait_time > 0:
                 time.sleep(wait_time)
 
+            # wait if its a renewable transition.
+            wait_until_switching_false('sync_vm-trace_rnw-mgt.properties')
+
             # 2) Create the VM
             create_time = time.time()
-            create_vm(is_evictable, vm_name, cores, scheduler)
+            is_creation_success = create_vm(is_evictable, vm_name, cores, scheduler)
             stats[is_evictable]["arrived"] += 1
 
             # 3) Poll for up to lifetime_sec to see if the VM is prematurely deleted
             actual_alive_time = 0.0
             prematurely_killed = False
+            not_admitted = False
 
             while True:
                 if stop_event.is_set():
@@ -160,12 +215,37 @@ def main():
                 time.sleep(POLL_INTERVAL)
                 print("[INFO] monitor | vm: ", vm_name, "elapsed time:", time.time() - create_time, "lifetime(s):",
                       lifetime_sec)
-                if not is_vm_active(vm_name):
+
+                # If VMs are transitioning, wait until that happens.
+                wait_until_switching_false('sync_vm-trace_rnw-mgt.properties')
+
+                if is_creation_success:
+                    # VM creation success. Check its status.
+                    is_active, status = is_vm_active(vm_name)
+                else:
+                    # VM creation fails. Assumes it was migrated out from the data center.
+                    is_active = False
+                    status = "not-admitted"
+
+                if not is_active:
                     # The VM has been removed (or is no longer ACTIVE) before lifetime ended
-                    prematurely_killed = True
+                    prematurely_killed = True if status == 'prematurely-killed' else False
+                    not_admitted = True if status == 'not-admitted' else False
+
                     actual_alive_time = time.time() - create_time
-                    stats[is_evictable]["prematurely_killed"] += 1
-                    print("[INFO] monitor | vm: ", vm_name, "prematurely killed:", prematurely_killed)
+                    if prematurely_killed:
+                        stats[is_evictable]["prematurely_killed"] += 1
+                    if not_admitted:
+                        stats[is_evictable]["not_admitted"] += 1
+
+                    print("[INFO] monitor | vm: ", vm_name, "is not active since ", status)
+
+                    if not_admitted:
+                        print(f"[INFO] deleting the error record of the server: {vm_name} to free resources...")
+                        command = ["openstack", "server", "delete", vm_name]
+                        output = subprocess.check_output(command, stderr=subprocess.STDOUT).decode().strip()
+                        print(f"[INFO] deletion status of VM: {vm_name} is: {output}")
+
                     break
 
                 # If we've reached (or exceeded) the total lifetime, break and delete
@@ -185,13 +265,15 @@ def main():
                 nLT = actual_alive_time / lifetime_sec
 
             results.append({
+                "time": time.time(),
                 "vm_name": vm_name,
                 "days": arrival_days,
                 "lifetime_days": lifetime_days,
                 "is_evictable": is_evictable,
                 "actual_alive_time_sec": f"{actual_alive_time:.2f}",
                 "nLT": f"{nLT:.4f}",
-                "prematurely_killed": prematurely_killed
+                "prematurely_killed": prematurely_killed,
+                "not_admitted": not_admitted,
             })
 
         thread = threading.Thread(
@@ -211,13 +293,15 @@ def main():
     print(f"[INFO] experiment completed successfully. logging...")
     # Now output the per-VM results to a CSV (for nLT metrics).
     fieldnames_detailed = [
+        "time",
         "vm_name",
         "days",
         "lifetime_days",
         "is_evictable",
         "actual_alive_time_sec",
         "nLT",
-        "prematurely_killed"
+        "prematurely_killed",
+        "not_admitted"
     ]
 
     with open(detailed_output_csv, "w", newline="") as fout:
@@ -230,7 +314,8 @@ def main():
     fieldnames_summary = [
         "is_evictable",
         "arrived",
-        "prematurely_killed"
+        "prematurely_killed",
+        "not_admitted"
     ]
 
     with open(summary_output_csv, "w", newline="") as fout:
@@ -240,7 +325,8 @@ def main():
             row = {
                 "is_evictable": evictable_val,
                 "arrived": stats[evictable_val]["arrived"],
-                "prematurely_killed": stats[evictable_val]["prematurely_killed"]
+                "prematurely_killed": stats[evictable_val]["prematurely_killed"],
+                "not_admitted": stats[evictable_val]["not_admitted"],
             }
             writer.writerow(row)
 

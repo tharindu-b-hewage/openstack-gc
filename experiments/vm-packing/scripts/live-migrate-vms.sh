@@ -37,4 +37,7 @@ openstack server list --host "$SRC_HOST" \
                         --availability-zone nova:$DST_HOST \
                           --wait \
                           $SERVER_NAME
+
+    # Append a timestamped log line
+    echo "DATE: $(date '+%Y-%m-%d %H:%M:%S') | EVENT: LIVE_MIGRATE | DATA: {ID:$SERVER_ID, NAME:$SERVER_NAME, FROM:$SRC_HOST, TO:$DST_HOST}" >> /data/tsaryakarahe/openstack/opt/stack3/openstack-gc/major-revision-experiments/scripts/results/smt-chasing.log
 done
