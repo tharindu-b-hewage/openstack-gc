@@ -1,6 +1,13 @@
 ## OpenStack-GC: A Framework for Carbon-aware Real-Time Workload Management in Clouds using Renewables-driven Cores
 
-This repository hosts the official prototype implementation of our ongoing research project aimed at harnessing renewable energy in cloud platforms for real-time workloads.
+This repository hosts the official prototype implementation of our research project aimed at harnessing renewable energy in cloud platforms for real-time workloads.
+
+### Reference
+
+If you use Openstack-GC in your work, please cite the accompanying [paper](https://ieeexplore.ieee.org/abstract/document/11007290):
+
+```T. B. Hewage, S. Ilager, M. A. Rodriguez and R. Buyya, "A Framework for Carbon-Aware Real-Time Workload Management in Clouds Using Renewables-Driven Cores," in IEEE Transactions on Computers, vol. 74, no. 8, pp. 2757-2771, Aug. 2025```
+
 
 ### Introduction
 
